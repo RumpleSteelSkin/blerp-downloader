@@ -63,6 +63,12 @@ NEXT_DATA_RE = re.compile(
 USER_URL_RE = re.compile(r"/u/([A-Za-z0-9_.\-]+)")
 GRAPHQL_ENDPOINT = "https://api.blerp.com/graphql"
 
+# --- İmza / sürüm (CLI, GUI ve installer bunları paylaşır) ---
+__author__ = "RumpleSteelSkin"
+__version__ = "1.0.0"
+APP_NAME = "Blerp → MP4 İndirici"
+SIGNATURE = f"By {__author__}"
+
 
 class BlerpError(Exception):
     """Kurtarılabilir hata: tek modda programı bitirir, toplu modda blerp atlanır."""
@@ -485,8 +491,10 @@ def run_bulk(username: str, out_dir: Path | None, *, limit: int | None,
 
 
 def main() -> None:
+    print(f"{APP_NAME}  v{__version__}  ·  {SIGNATURE}\n")
     ap = argparse.ArgumentParser(
-        description="Blerp -> MP4 (gif + ses). Tek blerp ya da bir kullanıcının tüm blerp'leri.")
+        description="Blerp -> MP4 (gif + ses). Tek blerp ya da bir kullanıcının tüm blerp'leri.",
+        epilog=SIGNATURE)
     ap.add_argument("target", nargs="?",
                     help="Soundbite URL'si VEYA /u/<kullanıcı> profil URL'si")
     ap.add_argument("--user", metavar="KULLANICI",

@@ -13,6 +13,17 @@ env/
 *.gif
 *.png
 
+# Logo/ikon kaynakları yukarıdaki kurallara takılmasın (sürüm kontrolünde kalsın)
+!assets/
+!assets/*
+
+# PyInstaller / build çıktıları
+build/
+dist/
+*.spec
+*.manifest
+version_info.txt
+
 # Geçici dosyalar
 *.concat.txt
 .DS_Store

@@ -1,4 +1,10 @@
-# Blerp -> MP4 Downloader
+<p align="center">
+  <img src="assets/logo.png" alt="Blerp Downloader" width="128">
+</p>
+
+<h1 align="center">Blerp -> MP4 Downloader</h1>
+
+<p align="center"><em>By RumpleSteelSkin</em></p>
 
 > 🌐 **English** · [Türkçe](README.tr.md)
 
@@ -139,6 +145,31 @@ Paste a soundbite URL **or** a username / profile URL into the single box (the m
 - **File naming (bulk):** `<title>_<biteId>.mp4`. Including the blerp ID in the name makes names unique **and** stable across runs (same blerp -> same name); this is the basis of the resume/skip behavior.
 - **Temporary files:** the WebP, MP3, PNG frames, intermediate animation, and concat list are kept in an auto-cleaned `TemporaryDirectory`; only the final MP4 persists.
 - **Console/encoding:** stdout/stderr are reconfigured to UTF-8, so the Windows console (cp1252) does not crash on Turkish characters or symbols such as `•`, `✓`, `✗`.
+
+## Packaging (.exe & installer)
+
+Build standalone Windows executables with [PyInstaller](https://pyinstaller.org):
+
+```bash
+pip install pyinstaller
+python generate_logo.py   # regenerates assets/icon.ico (only needed once)
+python build.py
+```
+
+This produces two single-file executables in `dist/` (signed *By RumpleSteelSkin* in their file properties):
+
+- **`BlerpDownloader.exe`** — the GUI (windowed)
+- **`blerp.exe`** — the command-line tool
+
+> ffmpeg/ffprobe are **not** bundled into the executables; the target machine must have them on its `PATH`.
+
+To build a Windows setup wizard, install [Inno Setup 6](https://jrsoftware.org/isinfo.php) (`winget install JRSoftware.InnoSetup`) and compile the included script:
+
+```bash
+ISCC installer.iss
+```
+
+The installer (`dist/installer/BlerpDownloader-Setup-1.0.0.exe`) installs both executables, creates Start Menu / desktop shortcuts, and lists **RumpleSteelSkin** as the publisher.
 
 ## Troubleshooting
 

@@ -19,6 +19,7 @@ Mimari notu:
 from __future__ import annotations
 
 import queue
+import sys
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -26,6 +27,12 @@ from tkinter import filedialog, ttk
 from tkinter.scrolledtext import ScrolledText
 
 import blerp_to_mp4 as core
+
+
+def resource_path(rel: str) -> Path:
+    """Kaynak dosya yolu — hem doğrudan çalıştırmada hem PyInstaller paketinde çalışır."""
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
+    return base / rel
 
 
 def detect_mode(target: str) -> tuple[str, str]:
@@ -54,8 +61,12 @@ class BlerpGUI:
         self.worker: threading.Thread | None = None
         self.cancel = threading.Event()
 
-        root.title("Blerp → MP4 İndirici")
-        root.minsize(580, 440)
+        root.title(f"{core.APP_NAME}  ·  {core.SIGNATURE}")
+        root.minsize(580, 460)
+        try:  # pencere ikonu (paket içinde veya kaynaktan)
+            root.iconbitmap(str(resource_path("assets/icon.ico")))
+        except Exception:
+            pass  # ikon yoksa sorun değil
         self._build()
         self.root.after(100, self._poll)
 
@@ -103,6 +114,10 @@ class BlerpGUI:
         self.log = ScrolledText(frm, height=12, state="disabled", wrap="word")
         self.log.grid(row=7, column=0, columnspan=3, sticky="nsew", pady=(6, 0))
         frm.rowconfigure(7, weight=1)
+
+        # İmza
+        ttk.Label(frm, text=core.SIGNATURE, foreground="#888") \
+            .grid(row=8, column=0, columnspan=3, sticky="e", pady=(6, 0))
 
     def _pick_dir(self) -> None:
         d = filedialog.askdirectory(title="Çıktı klasörü seç")

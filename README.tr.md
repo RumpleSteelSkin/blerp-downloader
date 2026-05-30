@@ -1,4 +1,10 @@
-# Blerp -> MP4 İndirici
+<p align="center">
+  <img src="assets/logo.png" alt="Blerp Downloader" width="128">
+</p>
+
+<h1 align="center">Blerp -> MP4 İndirici</h1>
+
+<p align="center"><em>By RumpleSteelSkin</em></p>
 
 > 🌐 [English](README.md) · **Türkçe**
 
@@ -139,6 +145,31 @@ Tek kutuya bir soundbite URL'si **ya da** kullanıcı adı / profil URL'si yapı
 - **Dosya adlandırma (toplu):** `<başlık>_<biteId>.mp4`. blerp ID'sinin ada eklenmesi adları benzersiz **ve** çalıştırmalar arası kararlı kılar (aynı blerp -> aynı ad); bu da resume/atla davranışının temelidir.
 - **Geçici dosyalar:** WebP, MP3, PNG kareler, ara animasyon ve concat listesi otomatik temizlenen bir `TemporaryDirectory` içinde tutulur; yalnızca nihai MP4 kalıcıdır.
 - **Konsol/kodlama:** stdout/stderr UTF-8'e yeniden yapılandırılır; bu yüzden Windows konsolu (cp1252) Türkçe karakterlerde ve `•`, `✓`, `✗` gibi simgelerde çökmez.
+
+## Paketleme (.exe & installer)
+
+Bağımsız Windows çalıştırılabilirleri [PyInstaller](https://pyinstaller.org) ile üretilir:
+
+```bash
+pip install pyinstaller
+python generate_logo.py   # assets/icon.ico'yu üretir (yalnızca bir kez gerekli)
+python build.py
+```
+
+`dist/` içinde iki tek-dosya exe üretir (dosya özelliklerinde *By RumpleSteelSkin* imzalı):
+
+- **`BlerpDownloader.exe`** — GUI (pencereli)
+- **`blerp.exe`** — komut satırı aracı
+
+> ffmpeg/ffprobe exe'lere **gömülmez**; hedef makinede `PATH` üzerinde bulunmalıdır.
+
+Windows kurulum sihirbazı için [Inno Setup 6](https://jrsoftware.org/isinfo.php) kurun (`winget install JRSoftware.InnoSetup`) ve dahil edilen betiği derleyin:
+
+```bash
+ISCC installer.iss
+```
+
+Kurulum dosyası (`dist/installer/BlerpDownloader-Setup-1.0.0.exe`) her iki exe'yi kurar, Başlat Menüsü / masaüstü kısayolları oluşturur ve yayıncı olarak **RumpleSteelSkin**'i gösterir.
 
 ## Sorun Giderme
 
