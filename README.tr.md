@@ -1,179 +1,146 @@
-# Blerp Downloader (blerp_to_mp4)
+# Blerp -> MP4 İndirici
 
 > 🌐 [English](README.md) · **Türkçe**
 
-Bir [Blerp](https://blerp.com) soundbite URL'sinden animasyonlu görseli (WebP) ve sesi (MP3) indirip, bunları FFmpeg ile birleştirerek tek bir **MP4** dosyası üreten, tek dosyalık bir Python 3 komut satırı aracı.
-
-Bir blerp aslında "ses + ona eşlik eden animasyonlu görsel" ikilisidir. Bu araç ikisini de tek bir paylaşılabilir, oynatılabilir videoda toplar.
+Bir Blerp soundbite'ının animasyonlu görselini (WebP) ve sesini (MP3) indirip FFmpeg ile birleştirerek MP4 üretir.
 
 ## Özellikler
 
-- Blerp soundbite sayfasını otomatik tarar; sayfanın içindeki `__NEXT_DATA__` (Apollo state) verisinden ses (MP3) ve görsel (WebP) bağlantılarını çözer.
-- Animasyonlu WebP'yi PNG karelerine ayırır ve her karenin **gerçek süresini** WebP'nin ham ANMF chunk'larından okuyarak doğru zamanlamayı korur.
-- Statik (animasyonsuz) görselleri de destekler; tek kareyle makul bir varsayılan süre kullanır.
-- FFmpeg concat demuxer ile değişken kare süreli, sessiz bir H.264 animasyon videosu kurar, ardından sesle birleştirir.
-- Akıllı senkronizasyon politikası: **ses kraldır**. Nihai videonun uzunluğu sesin uzunluğuna eşitlenir.
-  - Animasyon sesten kısaysa baştan döngülenir.
-  - Animasyon sesten uzunsa, ses bittiğinde kesilir.
-  - Ses asla kesilmez.
-- Ses uzunluğunu önce gerçek dosyadan (`ffprobe`), o olmazsa site metadatasından, o da yoksa video süresinden belirler.
-- Çıktı: web oynatımı için optimize edilmiş (`+faststart`), `yuv420p` H.264 video + 192 kbps AAC ses.
-- Türkçe karakterli başlıklarda Windows konsolunun çökmemesi için çıktı UTF-8'e ayarlanır; dosya adı geçersiz karakterlerden temizlenir.
+- **İki çalışma modu:** Tek bir soundbite indir ya da bir kullanıcının TÜM blerp'lerini toplu indir.
+- **Animasyonlu WebP -> MP4:** Görsel ile sesi tek bir MP4 dosyasında birleştirir.
+- **Gerçek kare süreleri:** Animasyonun her karesinin süresini WebP'nin ham ANMF chunk'larından okuyarak hızı bozmadan korur.
+- **"Ses kral" senkronu:** Nihai videonun uzunluğu sesin uzunluğuna eşitlenir; animasyon kısaysa döngülenir, uzunsa kesilir, ses asla kesilmez.
+- **Toplu modda resume:** Var olan dosyalar atlanır; yarıda kalan bir indirme baştan başlamadan kaldığı yerden sürer.
+- **Kimlik doğrulama gerektirmez:** Toplu listeleme, Blerp'in açık GraphQL API'sini kullanır.
+- **Türkçe arayüz:** Tüm çıktı ve hata mesajları Türkçedir.
 
 ## Gereksinimler
 
-- **Python 3.8+** — tip ipuçları `from __future__ import annotations` ile etkinleştirilen PEP 604 birleşim sözdizimini (`float | None`) kullanır.
-- **Pillow** `>=10.0` — animasyonlu WebP kare çıkarımı için (`pip install Pillow`).
-- **ffmpeg** ve **ffprobe** — sistemde kurulu ve `PATH` üzerinde erişilebilir olmalı.
-
-> FFmpeg/ffprobe `pip` ile gelmez; sistemde ayrıca kurulu olmalıdır. `ffprobe` bulunmazsa araç çökmek yerine site metadatasına ya da video süresine düşerek çalışmaya devam eder.
+- **Python 3.8+**
+- **ffmpeg** ve **ffprobe** — ikisi de PATH üzerinde erişilebilir olmalı (harici ikili dosyalar; `requirements.txt`'te yer almaz).
+- **Pillow** (`Pillow>=10.0`) — animasyonlu WebP'yi karelere ayırmak için.
 
 ## Kurulum
 
-1. Bu depoyu/dosyaları indirin.
-2. Python bağımlılığını kurun:
+```bash
+# Python bağımlılığı
+pip install -r requirements.txt
+# (veya doğrudan)
+pip install Pillow
+```
 
-   ```bash
-   pip install -r requirements.txt
-   ```
+ffmpeg/ffprobe kurulumu:
 
-   `requirements.txt` içeriği:
+```bash
+# Windows (winget)
+winget install Gyan.FFmpeg
 
-   ```
-   Pillow>=10.0
-   ```
+# macOS (Homebrew)
+brew install ffmpeg
 
-3. FFmpeg'in ve ffprobe'un kurulu ve `PATH`'te olduğundan emin olun:
+# Debian / Ubuntu
+sudo apt install ffmpeg
+```
 
-   ```bash
-   ffmpeg -version
-   ffprobe -version
-   ```
+Kurulumu doğrula:
 
-   Komutlar sürüm bilgisi yazdırmıyorsa FFmpeg'i kurup `PATH`'inize ekleyin.
+```bash
+ffmpeg -version
+ffprobe -version
+```
 
 ## Kullanım
 
-Temel kullanım — bir Blerp soundbite URL'si verin:
+### Tek mod (tek bir blerp)
 
 ```bash
-python blerp_to_mp4.py "https://blerp.com/soundbites/<blerp-id>"
+# Varsayılan: ./<başlık>.mp4 olarak kaydeder
+python blerp_to_mp4.py "<soundbite-url>"
+
+# Çıktı dosyasını belirt
+python blerp_to_mp4.py "<soundbite-url>" -o cikti.mp4
 ```
 
-Çıktı dosyasının yolunu/adını `-o` (veya `--out`) ile belirtin:
+Tek mod, sürecin 5 adımını (`[1/5]`...`[5/5]`) ekrana basar.
+
+### Toplu mod (bir kullanıcının tüm blerp'leri)
 
 ```bash
-python blerp_to_mp4.py "https://blerp.com/soundbites/<blerp-id>" -o cikti.mp4
+# --user ile kullanıcı adı
+python blerp_to_mp4.py --user cainethedark
+
+# ya da profil URL'si (/u/<kullanıcı>)
+python blerp_to_mp4.py "https://blerp.com/u/cainethedark"
+
+# Yalnızca ilk 10 blerp
+python blerp_to_mp4.py --user cainethedark --limit 10
+
+# Çıktı klasörünü belirt (varsayılan: ./<kullanıcı>/)
+python blerp_to_mp4.py --user cainethedark -o klasor/
+
+# Var olan dosyaların üzerine yaz (varsayılan: atla)
+python blerp_to_mp4.py --user cainethedark --overwrite
 ```
 
-```bash
-python blerp_to_mp4.py "https://blerp.com/soundbites/<blerp-id>" --out "C:\Videolar\benim_ses.mp4"
-```
+Toplu modda dosyalar `<başlık>_<biteId>.mp4` olarak adlandırılır ve var olanlar atlanır (resume). İşlem sonunda `<n> indirildi, <n> atlandı, <n> hata` özeti basılır.
 
-`-o` verilmezse çıktı, soundbite başlığından türetilen `<başlık>.mp4` dosyası olur (örn. `Komik Ses.mp4`).
+> **Not:** Hem `--user` (veya bir `/u/` profil URL'si) hem de bir soundbite URL'si birlikte verilirse toplu mod kazanır; tek-blerp URL'si yok sayılır.
 
-### Seçenekler
+## Seçenekler
 
 | Argüman | Açıklama |
-| --- | --- |
-| `url` | Blerp soundbite URL'si (zorunlu, konumsal argüman) |
-| `-o`, `--out` | Çıktı MP4 yolu (varsayılan: `<başlık>.mp4`) |
+|---|---|
+| `target` (pozisyonel, opsiyonel) | Soundbite URL'si **VEYA** `/u/<kullanıcı>` profil URL'si |
+| `--user KULLANICI` | Bir kullanıcının TÜM blerp'lerini indir (toplu mod) |
+| `-o`, `--out` | Tek mod: çıktı dosyası \| Toplu mod: çıktı klasörü |
+| `--limit N` | Toplu modda yalnızca ilk N blerp (`bites[:N]`) |
+| `--delay SN` | Toplu modda blerp'ler arası bekleme (saniye, varsayılan: `0.3`) |
+| `--overwrite` | Toplu modda var olan dosyaların üzerine yaz (varsayılan: atla) |
 
-Yardım için:
-
-```bash
-python blerp_to_mp4.py -h
-```
-
-### Örnek çıktı
-
-Çalışırken ilerleme 5 adımda gösterilir:
-
-```
-[1/5] Sayfa taranıyor: https://blerp.com/soundbites/<blerp-id>
-      Başlık : Örnek Ses
-      Ses    : https://.../audio.mp3
-      Görsel : https://.../image.webp
-[2/5] Medya indiriliyor...
-[3/5] WebP kareleri çıkarılıyor...
-      24 kare, ~3.60s animasyon
-[4/5] Animasyon videosu kuruluyor...
-      Plan: hedef=5.42s loop_video=True pad_audio=False
-[5/5] Ses + video birleştiriliyor...
-
-✓ Bitti -> C:\...\Örnek Ses.mp4
-```
-
-Sonuç tek bir `.mp4` dosyasıdır: süresi sesin uzunluğuna eşit, animasyonlu görüntü gerektiğinde döngülenmiş, H.264 video + AAC ses içeren, web oynatımı için `+faststart` ile optimize edilmiş bir video.
+> `--limit`, `--delay` ve `--overwrite` yalnızca toplu modda etkilidir. `-o/--out`, tek modda dosya, toplu modda klasör olarak yorumlanır.
 
 ## Nasıl Çalışır
 
-Araç tek bir doğrusal pipeline olarak çalışır (`run()` fonksiyonu, 5 adım):
+### Tek-blerp pipeline'ı
 
-```
-URL
- -> [1] Sayfayı indir, __NEXT_DATA__ (Apollo state) JSON'unu çıkar
-        Bite nesnesinden audio.mp3.url ve image.original.url'i çöz
- -> [2] Medyayı (WebP + MP3) geçici dizine indir
- -> [3] Animasyonlu WebP'yi Pillow ile PNG karelere ayır
-        (gerçek kare sürelerini ham ANMF chunk'larından okuyarak)
- -> [4] FFmpeg concat demuxer ile sessiz bir H.264 animasyon videosu kur
- -> [5] Sesi sync politikasına göre videoyla birleştir -> out.mp4
-```
+1. **[1/5] Sayfa taranır:** URL içindeki 24 karakterlik ObjectId çözülür, sayfa bir tarayıcı User-Agent'ı ile indirilir, `<script id="__NEXT_DATA__">` JSON'u çıkarılır. `props.pageProps.initialApolloState` içinden `Bite:<id>` nesnesi (yoksa ilk `Bite:` anahtarı) bulunur; `audio.mp3.url` ve `image.original.url` Apollo `__ref` işaretçileri çözülerek elde edilir.
+2. **[2/5] Medya indirilir:** Görsel `image.webp`, ses `audio.mp3` olarak geçici bir klasöre yazılır.
+3. **[3/5] Kareler çıkarılır:** WebP, Pillow ile PNG karelere (`frame_00000.png`...) ayrılır; her karenin gerçek süresi ham ANMF chunk'larından okunur, eksik süreler 40ms (~25fps) varsayılır.
+4. **[4/5] Animasyon videosu kurulur:** Bir concat demuxer listesi yazılır (son kare iki kez eklenir, çünkü concat son sürenin değerini yok sayar) ve `ffmpeg ... -vsync vfr -c:v libx264 -pix_fmt yuv420p` ile sessiz bir h264 MP4 üretilir.
+5. **[5/5] Senkron + birleştirme:** Sesin gerçek uzunluğu `ffprobe` ile ölçülür, `SyncPlan` kurulur ve `ffmpeg` ile görsel + ses son MP4'e mux edilir.
 
-1. **Sayfa taranıyor** — `parse_bite_id()` URL içinden 24 karakterlik hex Blerp `ObjectId`'sini regex (`[0-9a-fA-F]{24}`) ile çıkarır. `fetch_bite_media()` sayfayı indirir, `__NEXT_DATA__` JSON'unu söker ve `props.pageProps.initialApolloState` altındaki Apollo Client cache'inden `Bite:<id>` nesnesini bulur. Sonuçta ses URL'si, görsel URL'si ve başlık çözülür; başlık, ses ve görsel bağlantıları yazdırılır.
-2. **Medya indiriliyor** — WebP görseli ve MP3 sesi, geçici bir dizine (`tempfile.TemporaryDirectory`) `image.webp` ve `audio.mp3` olarak yazılır. Tüm ara dosyalar bu dizinde kalır ve iş bittiğinde otomatik temizlenir.
-3. **WebP kareleri çıkarılıyor** — `extract_frames()` görseli Pillow ile açar, her kareyi `RGBA` PNG olarak diske yazar; gerçek kare sürelerini ham WebP byte'larından okur. Kare sayısı ve yaklaşık toplam animasyon süresi yazdırılır.
-4. **Animasyon videosu kuruluyor** — `build_animation_video()` bir concat liste dosyası yazar ve FFmpeg ile sessiz `anim.mp4` (libx264, yuv420p) üretir. Ardından `probe_duration()` ses süresini ölçer, `resolve_sync()` senkronizasyon planını (`SyncPlan`) kurar ve plan (`hedef`, `loop_video`, `pad_audio`) yazdırılır.
-5. **Ses + video birleştiriliyor** — `mux()`, sessiz videoyu ve sesi `SyncPlan`'a göre birleştirip nihai MP4'ü üretir ve `✓ Bitti -> <çıktı yolu>` yazdırılır.
+### Toplu listeleme (GraphQL)
+
+- Önce `userByUsername` sorgusuyla kullanıcının `_id`'si bulunur (kullanıcı yoksa "Kullanıcı bulunamadı" hatası).
+- `soundEmotesFeaturedContentPagination` sorgusu, kimlik doğrulama gerektirmeyen açık GraphQL endpoint'i (`https://api.blerp.com/graphql`) üzerinden sayfa sayfa çağrılır.
+- Liste yanıtı her blerp'in ses (`audio.mp3.url`) ve görsel (`image.original.url`) URL'lerini de içerdiği için her blerp için ayrıca sayfa indirmeye gerek kalmaz.
+- Blerp'ler **sırayla** (tek tek, paralel değil) işlenir; her blerp `process_bite` ortak çekirdeğinden geçer. Toplu mod, tek modun bastığı `[2/5]`...`[5/5]` alt adımlarını ekrana basmaz.
 
 ## Teknik Notlar
 
-### `__NEXT_DATA__` Apollo state scraping
-
-Blerp bir Next.js sitesidir. Sayfa HTML'i içinde, sunucu tarafında render edilen veriyi taşıyan bir `<script id="__NEXT_DATA__" type="application/json">...</script>` etiketi bulunur. İlgili veri `props.pageProps.initialApolloState` altındaki **Apollo Client cache**'inde tutulur. Önce `Bite:<id>` anahtarı denenir; eşleşme yoksa `Bite:` ile başlayan ilk nesneye düşülür. Apollo cache normalize edilmiş olduğu için iç içe nesneler `{"__ref": "Type:id"}` işaretçileriyle saklanır; `_resolve_ref()` bunları gerçek nesnelere çözer. Ses `audio.mp3.url`'den, görsel `image.original.url`'den okunur.
-
-> **User-Agent spoofing:** CDN ve site, varsayılan `urllib` User-Agent'ını **403** ile reddeder. Bu yüzden tüm istekler (`http_get()`) gerçek bir Chrome/120 masaüstü tarayıcı UA başlığıyla, 30 saniyelik zaman aşımıyla yapılır.
-
-### Animasyonlu WebP — GIF değil
-
-Blerp görselleri GIF değil, **animasyonlu WebP**'dir. Burada iki teknik incelik vardır:
-
-**a) FFmpeg animasyonlu WebP'yi decode edemez.** Bu yüzden kare ayrımı FFmpeg'e bırakılmaz; `extract_frames()` görseli **Pillow** ile açar, `n_frames` kadar `seek()` yapıp her kareyi `RGBA` PNG olarak diske yazar (`frame_00000.png`, `frame_00001.png`, ...).
-
-**b) Pillow bu dosyalarda kare sürelerini güvenilir döndürmez (çoğunlukla 0 verir).** Gerçek kare süreleri (ground truth) doğrudan WebP'nin ham byte'larından okunur. `parse_anmf_durations()` RIFF/WEBP container'ını gezerek her `ANMF` (animation frame) chunk'ını bulur ve başlığın 12.–14. byte'larındaki **24-bit little-endian frame_duration** değerini (ms) çıkarır. RIFF chunk'ları çift hizalı olduğundan tek boyutlu payload'larda padding byte'ı atlanır.
-
-Süre listesi kare sayısıyla hizalanır: eksik ya da 0 olan süreler **40 ms (~25 fps)** varsayılanıyla doldurulur. Statik (tek kareli) görsellerde de tek kare + makul bir varsayılan süre üretilir.
-
-### FFmpeg concat demuxer ile değişken kare süresi
-
-`build_animation_video()` bir **concat demuxer** liste dosyası (`*.concat.txt`, UTF-8) oluşturur. Her kare için `file '<yol>'` ve onun gerçek süresi `duration <saniye>` satırı yazılır (yollar FFmpeg uyumluluğu için ileri eğik çizgili ve tek tırnaklıdır). concat demuxer **son karenin `duration` değerini yok saydığı** için son kare listeye bir kez daha eklenir. Video `libx264` / `yuv420p` ile, değişken kare sürelerini korumak için `-vsync vfr` kullanılarak render edilir ve `+faststart` ile yazılır.
-
-### Ses süresi ölçümü ve "ses kraldır" senkronizasyonu
-
-Sitenin `audioDuration` metadatası her zaman güvenilir değildir. Bu yüzden nihai uzunluk belirlenmeden önce `probe_duration()` ile **ffprobe** kullanılarak indirilen MP3'ün **gerçek süresi** ölçülür. Ground truth bu ölçümdür; başarısız olursa sırasıyla metadata süresine, o da yoksa video süresine düşülür:
-
-```python
-audio_dur = probe_duration(mp3_path) or media.audio_duration_s or video_dur
-```
-
-`resolve_sync()` politikası **"ses kraldır"** ilkesine dayanır (`TOLERANCE = 0.05s`) ve bir `SyncPlan` döndürür:
-
-- Nihai video uzunluğu **her zaman ses uzunluğuna** eşitlenir; video, `-t` ile ses uzunluğunda kesilir. Ses bir blerp'in ana içeriğidir, görsel onu süsler — bu yüzden ses asla kesilmez.
-- Animasyon sesten anlamlı ölçüde kısaysa (`video + TOLERANCE < ses`), ses dolana kadar **video baştan döngülenir** (`mux()` içinde `-stream_loop -1`).
-- Hedef zaten ses uzunluğu olduğundan ses, sessizlikle doldurulmaz (`pad_audio_with_silence` her zaman `False`'tur).
-
-Bu politika sabittir ve değiştirilebilir bir CLI seçeneği yoktur. Aynı şekilde kodek/kalite ayarları da sabittir: video `libx264` / `yuv420p`, ses `aac` 192 kbps — codec, bit hızı veya çözünürlük için CLI kontrolü yoktur.
+- **GIF değil, animasyonlu WebP:** Blerp görselleri animasyonlu WebP'dir. FFmpeg bu formatı güvenilir biçimde çözemediği için kareleri **Pillow** ayrıştırır, ardından FFmpeg yalnızca PNG karelerini birleştirir.
+- **Ham ANMF süreleri:** Pillow bu dosyalarda kare sürelerini `0` döndürdüğünden, gerçek süreler doğrudan WebP RIFF/ANMF chunk'larından (payload'ın 12.-14. baytlarındaki 24-bit little-endian değer) okunur. Bu, animasyon hızının orijinaliyle aynı kalmasını sağlar.
+- **ffprobe ile gerçek ses uzunluğu:** Senkronda kullanılacak ses uzunluğu sırasıyla şu öncelikle çözülür: önce `ffprobe` ile ölçülen gerçek değer, sonra site metadatası (`audioDuration`, ms->s), en son üretilen video süresi.
+- **"Ses kral" senkronu:** Nihai uzunluk = ses uzunluğu. Animasyon, sesten anlamlı ölçüde kısaysa (`TOLERANCE = 0.05s`) baştan döngülenir; daha uzunsa ses bittiğinde `-t` ile kesilir; ses asla sessizlikle doldurulmaz.
+- **GraphQL ayrıntıları (toplu):**
+  - Endpoint açıktır, **auth gerektirmez**; isteklerde bir tarayıcı User-Agent'ı ve `Origin: https://blerp.com` gönderilir.
+  - İstek `perPage=50` gönderse de **sunucu sayfa başına yanıtı 12 öğeyle sınırlar**; `pageInfo.pageCount`/`itemCount` güvenilmezdir (hep 12) ve kullanılmaz — döngü kontrolünde yalnızca `pageInfo.hasNextPage` güvenilirdir.
+  - Sayfalama, `hasNextPage` false olunca (ya da öğe kalmayınca) durur; `hasNextPage` hiç kapanmazsa `max_pages=1000` üst sınırı sonsuz döngüyü engeller.
+- **Dosya adlandırma (toplu):** `<başlık>_<biteId>.mp4`. blerp ID'sinin ada eklenmesi adları benzersiz **ve** çalıştırmalar arası kararlı kılar (aynı blerp -> aynı ad); bu da resume/atla davranışının temelidir.
+- **Geçici dosyalar:** WebP, MP3, PNG kareler, ara animasyon ve concat listesi otomatik temizlenen bir `TemporaryDirectory` içinde tutulur; yalnızca nihai MP4 kalıcıdır.
+- **Konsol/kodlama:** stdout/stderr UTF-8'e yeniden yapılandırılır; bu yüzden Windows konsolu (cp1252) Türkçe karakterlerde ve `•`, `✓`, `✗` gibi simgelerde çökmez.
 
 ## Sorun Giderme
 
-- **`HATA: Pillow gerekli.`** — `pip install Pillow` komutunu çalıştırın.
-- **`ffmpeg` / `ffprobe` bulunamadı (FileNotFoundError vb.)** — FFmpeg kurulu değil veya `PATH`'te değil; `ffmpeg -version` ile doğrulayın. (FFmpeg birleştirme adımında başarısız olursa hata yakalanmadan yığın izi olarak yansır.)
-- **`HATA: URL'de geçerli bir blerp ID bulunamadı`** — Verdiğiniz URL içinde 24 karakterlik blerp kimliği yok; doğrudan soundbite sayfasının tam adresini kullanın.
-- **`HATA: <url> -> HTTP 403` / `HATA: <url> indirilemedi`** — CDN veya site erişimi engellemiş olabilir; bağlantınızı ve URL'yi kontrol edip tekrar deneyin.
-- **`HATA: Sayfada __NEXT_DATA__ bulunamadı`** veya **`HATA: Apollo state içinde Bite nesnesi yok.`** — Blerp'in sayfa yapısı değişmiş olabilir; aracın güncellenmesi gerekebilir.
-- **`HATA: Bu blerp için ses (mp3) URL'si bulunamadı.`** / **`... görsel URL'si bulunamadı.`** — Bu soundbite için ilgili medya verisi sayfada yoktu; başka bir blerp deneyin.
+- **`HATA: Pillow gerekli.`** — `pip install Pillow` çalıştırın.
+- **`'ffmpeg' / 'ffprobe' bulunamadı` (FileNotFoundError) ya da mux/probe başarısız** — ffmpeg ve ffprobe'un kurulu ve PATH üzerinde olduğundan emin olun (`ffmpeg -version`, `ffprobe -version`).
+- **`HTTP 403` / indirilemedi** — site/CDN varsayılan urllib User-Agent'ını engeller; betik zaten tarayıcı UA'sı gönderir. Hata sürerse ağ/erişim sorununu kontrol edin. Betikte ağ yeniden deneme/backoff yoktur; tek modda hata programı bitirir, toplu modda yalnızca o blerp atlanır.
+- **`Sayfada __NEXT_DATA__ bulunamadı (site yapısı değişmiş olabilir).`** — Tek-mod scraping'i sitenin `__NEXT_DATA__`/Apollo yapısına bağlıdır; site yapısı değişmiş olabilir.
+- **`Kullanıcı bulunamadı: <ad>`** — Toplu modda kullanıcı adı hatalı ya da kullanıcı yok.
+- **`Bu blerp için ses/görsel URL'si bulunamadı.`** — Beklenen `audio.mp3.url`/`image.original.url` alanları bulunamadı. Toplu modda, medyası eksik öğeler sessizce listeden düşürülür.
+- **`İptal edildi.`** — İşlem Ctrl+C ile durduruldu.
+- **Statik / WebP olmayan görsel:** ANMF süreleri okunamazsa Pillow + 40ms varsayılan süre ile tek/çok kare yine de işlenir.
 
 ## Yasal Uyarı
 
-Bu araç yalnızca kişisel ve eğitim amaçlıdır. Kullanmadan önce [Blerp](https://blerp.com)'in kullanım koşullarına ve hizmet şartlarına uyduğunuzdan emin olun. Yalnızca indirmeye ve kullanmaya hakkınız olan içeriği indirin. İndirilen ses ve görsellerin telif hakları ilgili sahiplerine aittir; bu içeriğin kullanımına ilişkin tüm sorumluluk kullanıcıya aittir.
+Bu araç yalnızca Blerp'in hizmet şartlarına (ToS) uygun şekilde ve indirme hakkına sahip olduğunuz içerik için kullanılmalıdır. İndirilen içeriğin telif hakları ve kullanım koşulları size aittir; üçüncü taraflara ait içeriği izinsiz indirmek, dağıtmak ya da yeniden yayımlamak sizin sorumluluğunuzdadır. Toplu modda `--delay` ile istekler arasında bekleme bırakarak servise nazik davranın.

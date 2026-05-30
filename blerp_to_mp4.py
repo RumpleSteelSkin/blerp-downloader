@@ -2,18 +2,25 @@
 """
 blerp_to_mp4.py
 ================
-Bir Blerp soundbite URL'sinden animasyonlu görseli (WebP) + sesi (MP3) indirir
-ve FFmpeg ile birleştirip tek bir MP4 dosyası üretir.
+Bir Blerp soundbite'ından animasyonlu görseli (WebP) + sesi (MP3) indirir ve
+FFmpeg ile birleştirip MP4 üretir. İki mod:
 
-Pipeline:
-    URL
-     -> sayfayı indir, __NEXT_DATA__ (Apollo state) JSON'unu çıkar
-     -> Bite nesnesinden audio.mp3.url ve image.original.url'i çöz
-     -> medyayı indir
-     -> animasyonlu WebP'yi Pillow ile PNG karelere ayır (gerçek kare sürelerini
-        WebP'nin ham ANMF chunk'larından okuyarak)
-     -> FFmpeg concat demuxer ile sessiz bir animasyon videosu kur
-     -> sesi sync politikasına göre videoyla birleştir -> out.mp4
+  • Tek mod:   bir soundbite URL'si verilir.
+  • Toplu mod: --user <kullanıcı> ya da /u/<kullanıcı> profil URL'si verilir;
+               kullanıcının TÜM blerp'leri indirilir (var olanlar atlanır).
+
+Tek-blerp pipeline'ı:
+    URL -> sayfayı indir, __NEXT_DATA__ (Apollo state) JSON'unu çıkar
+        -> Bite nesnesinden audio.mp3.url ve image.original.url'i çöz
+        -> medyayı indir
+        -> animasyonlu WebP'yi Pillow ile PNG karelere ayır (gerçek kare sürelerini
+           WebP'nin ham ANMF chunk'larından okuyarak)
+        -> FFmpeg concat demuxer ile sessiz animasyon videosu kur
+        -> sesi sync politikasına göre videoyla birleştir -> out.mp4
+
+Toplu mod, GraphQL API'sinden (api.blerp.com/graphql, auth gerekmez) blerp'leri
+sayfalama ile listeler; yanıt ses+görsel URL'lerini de içerdiği için her blerp
+için ayrıca sayfa indirmeye gerek kalmaz.
 
 Bağımlılıklar:  Pillow  (pip install Pillow)   +   ffmpeg (PATH'te)
 """
@@ -27,6 +34,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -51,6 +59,13 @@ OBJECTID_RE = re.compile(r"[0-9a-fA-F]{24}")
 NEXT_DATA_RE = re.compile(
     r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', re.S
 )
+# Profil URL'si: https://blerp.com/u/<kullanıcı>
+USER_URL_RE = re.compile(r"/u/([A-Za-z0-9_.\-]+)")
+GRAPHQL_ENDPOINT = "https://api.blerp.com/graphql"
+
+
+class BlerpError(Exception):
+    """Kurtarılabilir hata: tek modda programı bitirir, toplu modda blerp atlanır."""
 
 
 # --------------------------------------------------------------------------- #
@@ -63,16 +78,34 @@ def http_get(url: str) -> bytes:
         with urlopen(req, timeout=30) as resp:
             return resp.read()
     except HTTPError as e:
-        sys.exit(f"HATA: {url} -> HTTP {e.code}")
+        raise BlerpError(f"{url} -> HTTP {e.code}")
     except URLError as e:
-        sys.exit(f"HATA: {url} indirilemedi -> {e.reason}")
+        raise BlerpError(f"{url} indirilemedi -> {e.reason}")
+
+
+def graphql(query: str, variables: dict) -> dict:
+    """Blerp GraphQL API'sine POST atar, data bloğunu döndürür (auth gerekmez)."""
+    body = json.dumps({"query": query, "variables": variables}).encode()
+    req = Request(
+        GRAPHQL_ENDPOINT, data=body,
+        headers={"User-Agent": UA, "Content-Type": "application/json",
+                 "Origin": "https://blerp.com"},
+    )
+    try:
+        with urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read())
+    except URLError as e:  # HTTPError dahil (alt sınıf)
+        raise BlerpError(f"GraphQL isteği başarısız: {e}")
+    if data.get("errors"):
+        raise BlerpError("GraphQL hatası: " + json.dumps(data["errors"])[:200])
+    return data.get("data") or {}
 
 
 def parse_bite_id(url: str) -> str:
     """URL içinden 24 karakterlik Blerp ObjectId'sini çıkarır."""
     m = OBJECTID_RE.search(url)
     if not m:
-        sys.exit(f"HATA: URL'de geçerli bir blerp ID bulunamadı: {url}")
+        raise BlerpError(f"URL'de geçerli bir blerp ID bulunamadı: {url}")
     return m.group(0)
 
 
@@ -99,7 +132,7 @@ def fetch_bite_media(url: str) -> BiteMedia:
 
     m = NEXT_DATA_RE.search(html)
     if not m:
-        sys.exit("HATA: Sayfada __NEXT_DATA__ bulunamadı (site yapısı değişmiş olabilir).")
+        raise BlerpError("Sayfada __NEXT_DATA__ bulunamadı (site yapısı değişmiş olabilir).")
     data = json.loads(m.group(1))
 
     apollo = data.get("props", {}).get("pageProps", {}).get("initialApolloState", {})
@@ -107,7 +140,7 @@ def fetch_bite_media(url: str) -> BiteMedia:
     if bite is None:  # ID eşleşmezse: ilk Bite tipli nesneyi bul
         bite = next((v for k, v in apollo.items() if k.startswith("Bite:")), None)
     if bite is None:
-        sys.exit("HATA: Apollo state içinde Bite nesnesi yok.")
+        raise BlerpError("Apollo state içinde Bite nesnesi yok.")
 
     audio = _resolve_ref(apollo, bite.get("audio"))
     image = _resolve_ref(apollo, bite.get("image"))
@@ -115,9 +148,9 @@ def fetch_bite_media(url: str) -> BiteMedia:
     image_url = (image.get("original") or {}).get("url", "")
 
     if not audio_url:
-        sys.exit("HATA: Bu blerp için ses (mp3) URL'si bulunamadı.")
+        raise BlerpError("Bu blerp için ses (mp3) URL'si bulunamadı.")
     if not image_url:
-        sys.exit("HATA: Bu blerp için görsel URL'si bulunamadı.")
+        raise BlerpError("Bu blerp için görsel URL'si bulunamadı.")
 
     return BiteMedia(
         bite_id=bite_id,
@@ -126,6 +159,95 @@ def fetch_bite_media(url: str) -> BiteMedia:
         image_url=image_url,
         audio_duration_s=(bite.get("audioDuration") or 0) / 1000.0,
     )
+
+
+# --------------------------------------------------------------------------- #
+#  1b. Toplu listeleme (GraphQL API — profil blerp'leri)
+# --------------------------------------------------------------------------- #
+# Profil grid'inin attığı sorgunun minimal hâli (tarayıcı ağ dinlemesiyle bulundu).
+# soundEmotesFeaturedContentPagination, sayfa başına en çok 12 öğe döndürür ve
+# pageInfo.pageCount/itemCount GÜVENİLMEZ (hep 12) — sadece hasNextPage'e bakılır.
+_USER_ID_QUERY = (
+    "query($u:String!){ web { userByUsername(username:$u){ _id username } } }"
+)
+_PROFILE_BITES_QUERY = """
+query($page:Int,$perPage:Int,$streamerId:MongoID,$sortOverride:String,$purposeTypes:[String],$pageType:String){
+  soundEmotes {
+    soundEmotesFeaturedContentPagination(
+      page:$page, perPage:$perPage, userId:$streamerId,
+      sortOverride:$sortOverride, purposeTypes:$purposeTypes,
+      pageType:$pageType, isDashboard:false
+    ){
+      pageInfo { hasNextPage }
+      items {
+        biteId
+        bite {
+          _id title audioDuration
+          audio { mp3 { url } }
+          image { original { url } }
+        }
+      }
+    }
+  }
+}"""
+
+
+def parse_username(target: str) -> str | None:
+    """/u/<kullanıcı> profil URL'sinden kullanıcı adını çıkarır; yoksa None."""
+    m = USER_URL_RE.search(target or "")
+    return m.group(1) if m else None
+
+
+def fetch_user_id(username: str) -> tuple[str, str]:
+    """Kullanıcı adından (_id, gerçek kullanıcı adı) döndürür."""
+    data = graphql(_USER_ID_QUERY, {"u": username})
+    user = (data.get("web") or {}).get("userByUsername")
+    if not user:
+        raise BlerpError(f"Kullanıcı bulunamadı: {username}")
+    return user["_id"], user.get("username") or username
+
+
+def _edge_to_media(edge: dict) -> BiteMedia | None:
+    """Bir pagination edge'ini BiteMedia'ya çevirir; medyası eksikse None."""
+    bid = edge.get("biteId")
+    b = edge.get("bite") or {}
+    audio_url = ((b.get("audio") or {}).get("mp3") or {}).get("url", "")
+    image_url = ((b.get("image") or {}).get("original") or {}).get("url", "")
+    if not bid or not audio_url or not image_url:
+        return None
+    return BiteMedia(
+        bite_id=bid,
+        title=b.get("title") or bid,
+        audio_url=audio_url,
+        image_url=image_url,
+        audio_duration_s=(b.get("audioDuration") or 0) / 1000.0,
+    )
+
+
+def list_user_bites(username: str, *, max_pages: int = 1000) -> list[BiteMedia]:
+    """
+    Bir kullanıcının profilindeki TÜM blerp'leri sayfalama ile toplar.
+    Yanıt her blerp'in ses+görsel URL'sini de içerdiği için ekstra istek gerekmez.
+    max_pages: API hiç hasNextPage=false döndürmezse sonsuz döngüye karşı güvenlik.
+    """
+    user_id, _ = fetch_user_id(username)
+    bites: list[BiteMedia] = []
+    seen: set[str] = set()
+    for page in range(1, max_pages + 1):
+        data = graphql(_PROFILE_BITES_QUERY, {
+            "page": page, "perPage": 50, "streamerId": user_id,
+            "sortOverride": "LEX_DESC_REAL", "purposeTypes": ["SOUND"],
+            "pageType": "PROFILE",
+        })
+        pg = (data.get("soundEmotes") or {}).get("soundEmotesFeaturedContentPagination")
+        items = pg.get("items", []) if pg else []
+        for media in (_edge_to_media(it) for it in items):
+            if media and media.bite_id not in seen:
+                seen.add(media.bite_id)
+                bites.append(media)
+        if not pg or not items or not pg["pageInfo"]["hasNextPage"]:
+            break
+    return bites
 
 
 # --------------------------------------------------------------------------- #
@@ -278,7 +400,44 @@ def sanitize(name: str) -> str:
     return re.sub(r'[\\/:*?"<>|]+', "_", name).strip() or "blerp"
 
 
-def run(url: str, out: Path | None) -> None:
+def process_bite(media: BiteMedia, out_path: Path, *, verbose: bool = False) -> None:
+    """
+    Bir BiteMedia'yı (ses+görsel URL'leri hazır) indirip MP4'e dönüştürür.
+    Hem tek hem toplu modun ortak çekirdeği; ağ/ffmpeg hatalarını yukarı fırlatır.
+    """
+    def log(msg: str) -> None:
+        if verbose:
+            print(msg)
+
+    with tempfile.TemporaryDirectory(prefix="blerp_") as td:
+        tmp = Path(td)
+        webp_path, mp3_path = tmp / "image.webp", tmp / "audio.mp3"
+
+        log("[2/5] Medya indiriliyor...")
+        webp_path.write_bytes(http_get(media.image_url))
+        mp3_path.write_bytes(http_get(media.audio_url))
+
+        log("[3/5] WebP kareleri çıkarılıyor...")
+        frames, durations = extract_frames(webp_path, tmp / "frames")
+        log(f"      {len(frames)} kare, ~{sum(durations)/1000:.2f}s animasyon")
+
+        log("[4/5] Animasyon videosu kuruluyor...")
+        anim = tmp / "anim.mp4"
+        video_dur = build_animation_video(frames, durations, anim)
+
+        # Ses uzunluğu: önce gerçek dosyadan ölç (ground truth), olmazsa metadata.
+        audio_dur = probe_duration(mp3_path) or media.audio_duration_s or video_dur
+        plan = resolve_sync(video_dur, audio_dur)
+        log(f"      Plan: hedef={plan.target_duration:.2f}s "
+            f"loop_video={plan.loop_video} pad_audio={plan.pad_audio_with_silence}")
+
+        log("[5/5] Ses + video birleştiriliyor...")
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        mux(anim, mp3_path, plan, out_path)
+
+
+def run_single(url: str, out: Path | None) -> None:
+    """Tek bir soundbite URL'sini indirir."""
     print(f"[1/5] Sayfa taranıyor: {url}")
     media = fetch_bite_media(url)
     print(f"      Başlık : {media.title}")
@@ -286,41 +445,74 @@ def run(url: str, out: Path | None) -> None:
     print(f"      Görsel : {media.image_url}")
 
     out = out or Path(f"{sanitize(media.title)}.mp4")
-
-    with tempfile.TemporaryDirectory(prefix="blerp_") as td:
-        tmp = Path(td)
-        webp_path, mp3_path = tmp / "image.webp", tmp / "audio.mp3"
-
-        print("[2/5] Medya indiriliyor...")
-        webp_path.write_bytes(http_get(media.image_url))
-        mp3_path.write_bytes(http_get(media.audio_url))
-
-        print("[3/5] WebP kareleri çıkarılıyor...")
-        frames, durations = extract_frames(webp_path, tmp / "frames")
-        print(f"      {len(frames)} kare, ~{sum(durations)/1000:.2f}s animasyon")
-
-        print("[4/5] Animasyon videosu kuruluyor...")
-        anim = tmp / "anim.mp4"
-        video_dur = build_animation_video(frames, durations, anim)
-
-        # Ses uzunluğu: önce gerçek dosyadan ölç (ground truth), olmazsa metadata.
-        audio_dur = probe_duration(mp3_path) or media.audio_duration_s or video_dur
-        plan = resolve_sync(video_dur, audio_dur)
-        print(f"      Plan: hedef={plan.target_duration:.2f}s "
-              f"loop_video={plan.loop_video} pad_audio={plan.pad_audio_with_silence}")
-
-        print("[5/5] Ses + video birleştiriliyor...")
-        mux(anim, mp3_path, plan, out)
-
+    process_bite(media, out, verbose=True)
     print(f"\n✓ Bitti -> {out.resolve()}")
 
 
+def run_bulk(username: str, out_dir: Path | None, *, limit: int | None,
+             delay: float, overwrite: bool) -> None:
+    """Bir kullanıcının tüm blerp'lerini sırayla indirir (var olanları atlar)."""
+    print(f"Kullanıcı taranıyor: {username}")
+    bites = list_user_bites(username)
+    if limit:
+        bites = bites[:limit]
+
+    out_dir = out_dir or Path(sanitize(username))
+    out_dir.mkdir(parents=True, exist_ok=True)
+    total = len(bites)
+    print(f"{total} blerp bulundu -> {out_dir}/\n")
+
+    ok = skip = fail = 0
+    for i, media in enumerate(bites, 1):
+        # Dosya adı blerp ID içerir: benzersizdir VE tekrar çalıştırmada kararlıdır
+        # (aynı blerp -> aynı ad), bu da "var olanı atla" (resume) için şart.
+        out_path = out_dir / f"{sanitize(media.title)}_{media.bite_id}.mp4"
+        tag = f"[{i}/{total}]"
+        if out_path.exists() and not overwrite:
+            skip += 1
+            print(f"{tag} • atlandı (zaten var): {out_path.name}")
+            continue
+        try:
+            process_bite(media, out_path)
+            ok += 1
+            print(f"{tag} ✓ {out_path.name}")
+        except (BlerpError, subprocess.CalledProcessError, OSError) as e:
+            fail += 1
+            print(f"{tag} ✗ HATA ({media.title[:30]}): {e}")
+        time.sleep(delay)
+
+    print(f"\nBitti: {ok} indirildi, {skip} atlandı, {fail} hata -> {out_dir.resolve()}")
+
+
 def main() -> None:
-    ap = argparse.ArgumentParser(description="Blerp soundbite -> MP4 (gif + ses)")
-    ap.add_argument("url", help="Blerp soundbite URL'si")
-    ap.add_argument("-o", "--out", type=Path, help="Çıktı MP4 yolu (varsayılan: <başlık>.mp4)")
+    ap = argparse.ArgumentParser(
+        description="Blerp -> MP4 (gif + ses). Tek blerp ya da bir kullanıcının tüm blerp'leri.")
+    ap.add_argument("target", nargs="?",
+                    help="Soundbite URL'si VEYA /u/<kullanıcı> profil URL'si")
+    ap.add_argument("--user", metavar="KULLANICI",
+                    help="Bir kullanıcının TÜM blerp'lerini indir (toplu mod)")
+    ap.add_argument("-o", "--out", type=Path,
+                    help="Tek mod: çıktı dosyası | Toplu mod: çıktı klasörü")
+    ap.add_argument("--limit", type=int, help="Toplu modda yalnızca ilk N blerp")
+    ap.add_argument("--delay", type=float, default=0.3,
+                    help="Toplu modda blerp'ler arası bekleme (sn, varsayılan: 0.3)")
+    ap.add_argument("--overwrite", action="store_true",
+                    help="Toplu modda var olan dosyaların üzerine yaz (varsayılan: atla)")
     args = ap.parse_args()
-    run(args.url, args.out)
+
+    username = args.user or parse_username(args.target or "")
+    try:
+        if username:
+            run_bulk(username, args.out, limit=args.limit,
+                     delay=args.delay, overwrite=args.overwrite)
+        elif args.target:
+            run_single(args.target, args.out)
+        else:
+            ap.error("Bir soundbite URL'si, /u/<kullanıcı> profili ya da --user verin.")
+    except BlerpError as e:
+        sys.exit(f"HATA: {e}")
+    except KeyboardInterrupt:
+        sys.exit("\nİptal edildi.")
 
 
 if __name__ == "__main__":

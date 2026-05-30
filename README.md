@@ -1,179 +1,146 @@
-# Blerp Downloader (blerp_to_mp4)
+# Blerp -> MP4 Downloader
 
 > 🌐 **English** · [Türkçe](README.tr.md)
 
-A single-file Python 3 command-line tool that downloads the animated image (WebP) and audio (MP3) from a [Blerp](https://blerp.com) soundbite URL and merges them with FFmpeg into a single **MP4** file.
-
-A blerp is essentially a pairing of "audio + an accompanying animated image." This tool combines the two into a single shareable, playable video.
+Downloads a Blerp soundbite's animated image (WebP) and its audio (MP3), then combines them with FFmpeg to produce an MP4.
 
 ## Features
 
-- Automatically scrapes the Blerp soundbite page; it resolves the audio (MP3) and image (WebP) links from the page's `__NEXT_DATA__` (Apollo state) data.
-- Splits the animated WebP into PNG frames and preserves correct timing by reading each frame's **actual duration** from the WebP's raw ANMF chunks.
-- Also supports static (non-animated) images; uses a reasonable default duration with a single frame.
-- Builds a silent, variable-frame-duration H.264 animation video with the FFmpeg concat demuxer, then merges it with the audio.
-- Smart synchronization policy: **audio is king**. The final video's length is set equal to the audio's length.
-  - If the animation is shorter than the audio, it is looped from the start.
-  - If the animation is longer than the audio, it is cut off when the audio ends.
-  - The audio is never cut off.
-- Determines the audio length first from the actual file (`ffprobe`), failing that from the site metadata, and failing that from the video duration.
-- Output: an H.264 video optimized for web playback (`+faststart`), `yuv420p`, plus 192 kbps AAC audio.
-- For titles containing Turkish characters, output is set to UTF-8 to prevent the Windows console from crashing; the file name is cleaned of invalid characters.
+- **Two operating modes:** download a single soundbite, or bulk-download ALL of a user's blerps.
+- **Animated WebP -> MP4:** merges the image and audio into a single MP4 file.
+- **True frame durations:** reads each animation frame's duration directly from the WebP's raw ANMF chunks, preserving the original speed.
+- **"Audio is king" sync:** the final video's length is matched to the audio length; if the animation is shorter it is looped, if longer it is cut, and the audio is never cut.
+- **Resume in bulk mode:** existing files are skipped, so an interrupted download continues where it left off instead of starting over.
+- **No authentication required:** bulk listing uses Blerp's public GraphQL API.
+- **Turkish interface:** all output and error messages are in Turkish.
 
 ## Requirements
 
-- **Python 3.8+** — type hints use the PEP 604 union syntax (`float | None`) enabled via `from __future__ import annotations`.
-- **Pillow** `>=10.0` — for animated WebP frame extraction (`pip install Pillow`).
-- **ffmpeg** and **ffprobe** — must be installed on the system and accessible on the `PATH`.
-
-> FFmpeg/ffprobe do not come with `pip`; they must be installed separately on the system. If `ffprobe` is not found, the tool keeps working by falling back to the site metadata or the video duration instead of crashing.
+- **Python 3.8+**
+- **ffmpeg** and **ffprobe** — both must be available on PATH (external binaries; not listed in `requirements.txt`).
+- **Pillow** (`Pillow>=10.0`) — for splitting the animated WebP into frames.
 
 ## Installation
 
-1. Download this repository/files.
-2. Install the Python dependency:
+```bash
+# Python dependency
+pip install -r requirements.txt
+# (or directly)
+pip install Pillow
+```
 
-   ```bash
-   pip install -r requirements.txt
-   ```
+Installing ffmpeg/ffprobe:
 
-   `requirements.txt` contents:
+```bash
+# Windows (winget)
+winget install Gyan.FFmpeg
 
-   ```
-   Pillow>=10.0
-   ```
+# macOS (Homebrew)
+brew install ffmpeg
 
-3. Make sure FFmpeg and ffprobe are installed and on the `PATH`:
+# Debian / Ubuntu
+sudo apt install ffmpeg
+```
 
-   ```bash
-   ffmpeg -version
-   ffprobe -version
-   ```
+Verify the installation:
 
-   If the commands do not print version information, install FFmpeg and add it to your `PATH`.
+```bash
+ffmpeg -version
+ffprobe -version
+```
 
 ## Usage
 
-Basic usage — provide a Blerp soundbite URL:
+### Single mode (one blerp)
 
 ```bash
-python blerp_to_mp4.py "https://blerp.com/soundbites/<blerp-id>"
+# Default: saves as ./<title>.mp4
+python blerp_to_mp4.py "<soundbite-url>"
+
+# Specify the output file
+python blerp_to_mp4.py "<soundbite-url>" -o cikti.mp4
 ```
 
-Specify the output file's path/name with `-o` (or `--out`):
+Single mode prints the 5 steps of the process (`[1/5]`...`[5/5]`) to the screen.
+
+### Bulk mode (all of a user's blerps)
 
 ```bash
-python blerp_to_mp4.py "https://blerp.com/soundbites/<blerp-id>" -o cikti.mp4
+# Username via --user
+python blerp_to_mp4.py --user cainethedark
+
+# or a profile URL (/u/<username>)
+python blerp_to_mp4.py "https://blerp.com/u/cainethedark"
+
+# Only the first 10 blerps
+python blerp_to_mp4.py --user cainethedark --limit 10
+
+# Specify the output folder (default: ./<username>/)
+python blerp_to_mp4.py --user cainethedark -o klasor/
+
+# Overwrite existing files (default: skip)
+python blerp_to_mp4.py --user cainethedark --overwrite
 ```
 
-```bash
-python blerp_to_mp4.py "https://blerp.com/soundbites/<blerp-id>" --out "C:\Videolar\benim_ses.mp4"
-```
+In bulk mode, files are named `<title>_<biteId>.mp4` and existing ones are skipped (resume). At the end of the run, a summary is printed: `<n> indirildi, <n> atlandı, <n> hata` ("<n> downloaded, <n> skipped, <n> errors").
 
-If `-o` is not provided, the output is a `<title>.mp4` file derived from the soundbite title (e.g. `Komik Ses.mp4`).
+> **Note:** If both `--user` (or a `/u/` profile URL) and a soundbite URL are given together, bulk mode wins; the single-blerp URL is ignored.
 
-### Options
+## Options
 
 | Argument | Description |
-| --- | --- |
-| `url` | Blerp soundbite URL (required, positional argument) |
-| `-o`, `--out` | Output MP4 path (default: `<title>.mp4`) |
+|---|---|
+| `target` (positional, optional) | Soundbite URL **OR** `/u/<username>` profile URL |
+| `--user KULLANICI` | Download ALL of a user's blerps (bulk mode) |
+| `-o`, `--out` | Single mode: output file \| Bulk mode: output folder |
+| `--limit N` | Bulk mode only: only the first N blerps (`bites[:N]`) |
+| `--delay SN` | Bulk mode: wait between blerps (seconds, default: `0.3`) |
+| `--overwrite` | Bulk mode: overwrite existing files (default: skip) |
 
-For help:
-
-```bash
-python blerp_to_mp4.py -h
-```
-
-### Example output
-
-While running, progress is shown in 5 steps. The program prints these strings in Turkish; English glosses are added in parentheses below on the first occurrence:
-
-```
-[1/5] Sayfa taranıyor: https://blerp.com/soundbites/<blerp-id>          (Scraping page)
-      Başlık : Örnek Ses                                                (Title)
-      Ses    : https://.../audio.mp3                                    (Audio)
-      Görsel : https://.../image.webp                                   (Image)
-[2/5] Medya indiriliyor...                                              (Downloading media)
-[3/5] WebP kareleri çıkarılıyor...                                      (Extracting WebP frames)
-      24 kare, ~3.60s animasyon                                         (24 frames, ~3.60s animation)
-[4/5] Animasyon videosu kuruluyor...                                    (Building animation video)
-      Plan: hedef=5.42s loop_video=True pad_audio=False                 (Plan: target=...)
-[5/5] Ses + video birleştiriliyor...                                    (Merging audio + video)
-
-✓ Bitti -> C:\...\Örnek Ses.mp4                                         (Done)
-```
-
-The result is a single `.mp4` file: its duration equals the audio's length, the animated image looped when needed, containing H.264 video + AAC audio, optimized for web playback with `+faststart`.
+> `--limit`, `--delay`, and `--overwrite` take effect only in bulk mode. `-o/--out` is interpreted as a file in single mode and as a folder in bulk mode.
 
 ## How It Works
 
-The tool runs as a single linear pipeline (the `run()` function, 5 steps):
+### Single-blerp pipeline
 
-```
-URL
- -> [1] Download the page, extract the __NEXT_DATA__ (Apollo state) JSON
-        Resolve audio.mp3.url and image.original.url from the Bite object
- -> [2] Download the media (WebP + MP3) to a temporary directory
- -> [3] Split the animated WebP into PNG frames with Pillow
-        (reading the actual frame durations from the raw ANMF chunks)
- -> [4] Build a silent H.264 animation video with the FFmpeg concat demuxer
- -> [5] Merge the audio with the video according to the sync policy -> out.mp4
-```
+1. **[1/5] The page is scraped:** the 24-character ObjectId in the URL is resolved, the page is downloaded with a browser User-Agent, and the `<script id="__NEXT_DATA__">` JSON is extracted. The `Bite:<id>` object (or the first `Bite:` key if absent) is located within `props.pageProps.initialApolloState`; `audio.mp3.url` and `image.original.url` are obtained by resolving the Apollo `__ref` pointers.
+2. **[2/5] Media is downloaded:** the image is written as `image.webp` and the audio as `audio.mp3` into a temporary folder.
+3. **[3/5] Frames are extracted:** the WebP is split into PNG frames (`frame_00000.png`...) with Pillow; each frame's true duration is read from the raw ANMF chunks, and missing durations default to 40ms (~25fps).
+4. **[4/5] The animation video is built:** a concat demuxer list is written (the last frame is added twice, because concat ignores the value of the final duration), and a silent h264 MP4 is produced with `ffmpeg ... -vsync vfr -c:v libx264 -pix_fmt yuv420p`.
+5. **[5/5] Sync + mux:** the audio's true length is measured with `ffprobe`, a `SyncPlan` is built, and the image + audio are muxed into the final MP4 with `ffmpeg`.
 
-1. **Scraping the page** — `parse_bite_id()` extracts the 24-character hex Blerp `ObjectId` from the URL with a regex (`[0-9a-fA-F]{24}`). `fetch_bite_media()` downloads the page, parses out the `__NEXT_DATA__` JSON, and finds the `Bite:<id>` object in the Apollo Client cache under `props.pageProps.initialApolloState`. As a result, the audio URL, image URL, and title are resolved; the title and the audio and image links are printed.
-2. **Downloading media** — the WebP image and the MP3 audio are written to a temporary directory (`tempfile.TemporaryDirectory`) as `image.webp` and `audio.mp3`. All intermediate files stay in this directory and are automatically cleaned up when the job finishes.
-3. **Extracting WebP frames** — `extract_frames()` opens the image with Pillow and writes each frame to disk as an `RGBA` PNG; it reads the actual frame durations from the raw WebP bytes. The frame count and the approximate total animation duration are printed.
-4. **Building the animation video** — `build_animation_video()` writes a concat list file and produces a silent `anim.mp4` (libx264, yuv420p) with FFmpeg. Then `probe_duration()` measures the audio duration, `resolve_sync()` builds the synchronization plan (`SyncPlan`), and the plan (`hedef`, `loop_video`, `pad_audio`) is printed.
-5. **Merging audio + video** — `mux()` combines the silent video and the audio according to the `SyncPlan` to produce the final MP4, and `✓ Bitti -> <output path>` is printed.
+### Bulk listing (GraphQL)
+
+- First, the user's `_id` is found via the `userByUsername` query (a "Kullanıcı bulunamadı" / "User not found" error if the user does not exist).
+- The `soundEmotesFeaturedContentPagination` query is called page by page over the public GraphQL endpoint (`https://api.blerp.com/graphql`), which requires no authentication.
+- Because the listing response already includes each blerp's audio (`audio.mp3.url`) and image (`image.original.url`) URLs, no separate page download is needed per blerp.
+- Blerps are processed **sequentially** (one at a time, not in parallel); each blerp goes through the shared `process_bite` core. Bulk mode does not print the `[2/5]`...`[5/5]` sub-steps that single mode prints.
 
 ## Technical Notes
 
-### `__NEXT_DATA__` Apollo state scraping
-
-Blerp is a Next.js site. Within the page HTML there is a `<script id="__NEXT_DATA__" type="application/json">...</script>` tag carrying the server-side rendered data. The relevant data is held in the **Apollo Client cache** under `props.pageProps.initialApolloState`. The `Bite:<id>` key is tried first; if there is no match, it falls back to the first object whose key starts with `Bite:`. Because the Apollo cache is normalized, nested objects are stored as `{"__ref": "Type:id"}` pointers; `_resolve_ref()` resolves these into the actual objects. The audio is read from `audio.mp3.url` and the image from `image.original.url`.
-
-> **User-Agent spoofing:** The CDN and site reject the default `urllib` User-Agent with a **403**. For this reason, all requests (`http_get()`) are made with a real Chrome/120 desktop browser UA header and a 30-second timeout.
-
-### Animated WebP — not GIF
-
-Blerp images are not GIFs but **animated WebP**. There are two technical subtleties here:
-
-**a) FFmpeg cannot decode animated WebP.** For this reason, frame splitting is not left to FFmpeg; `extract_frames()` opens the image with **Pillow**, performs `seek()` for each of `n_frames`, and writes each frame to disk as an `RGBA` PNG (`frame_00000.png`, `frame_00001.png`, ...).
-
-**b) Pillow does not reliably return frame durations for these files (it mostly returns 0).** The actual frame durations (ground truth) are read directly from the WebP's raw bytes. `parse_anmf_durations()` traverses the RIFF/WEBP container, finds each `ANMF` (animation frame) chunk, and extracts the **24-bit little-endian frame_duration** value (ms) from bytes 12–14 of the header. Since RIFF chunks are even-aligned, a padding byte is skipped on odd-sized payloads.
-
-The duration list is aligned with the frame count: missing or 0 durations are filled with a **40 ms (~25 fps)** default. For static (single-frame) images, a single frame plus a reasonable default duration is produced as well.
-
-### Variable frame duration with the FFmpeg concat demuxer
-
-`build_animation_video()` creates a **concat demuxer** list file (`*.concat.txt`, UTF-8). For each frame, a `file '<path>'` line and its actual duration `duration <seconds>` line are written (paths use forward slashes and single quotes for FFmpeg compatibility). Because the concat demuxer **ignores the `duration` value of the last frame**, the last frame is added to the list one more time. The video is rendered with `libx264` / `yuv420p`, using `-vsync vfr` to preserve the variable frame durations, and written with `+faststart`.
-
-### Audio duration measurement and "audio is king" synchronization
-
-The site's `audioDuration` metadata is not always reliable. For this reason, before the final length is determined, the **actual duration** of the downloaded MP3 is measured using **ffprobe** via `probe_duration()`. This measurement is the ground truth; if it fails, it falls back to the metadata duration, and failing that to the video duration:
-
-```python
-audio_dur = probe_duration(mp3_path) or media.audio_duration_s or video_dur
-```
-
-The `resolve_sync()` policy is based on the **"audio is king"** principle (`TOLERANCE = 0.05s`) and returns a `SyncPlan`:
-
-- The final video length is **always** set equal to the audio length; the video is cut to the audio length with `-t`. The audio is the main content of a blerp, and the image merely adorns it — that is why the audio is never cut off.
-- If the animation is meaningfully shorter than the audio (`video + TOLERANCE < audio`), the **video is looped from the start** until the audio is filled (`-stream_loop -1` inside `mux()`).
-- Since the target is already the audio length, the audio is not padded with silence (`pad_audio_with_silence` is always `False`).
-
-This policy is fixed and there is no CLI option to change it. Likewise, the codec/quality settings are fixed as well: video is `libx264` / `yuv420p`, audio is `aac` 192 kbps — there is no CLI control over the codec, bit rate, or resolution.
+- **Animated WebP, not GIF:** Blerp images are animated WebP. Because FFmpeg cannot reliably decode this format, **Pillow** parses the frames, after which FFmpeg only concatenates the PNG frames.
+- **Raw ANMF durations:** since Pillow returns frame durations of `0` for these files, the true durations are read directly from the WebP RIFF/ANMF chunks (the 24-bit little-endian value at payload bytes 12-14). This keeps the animation speed identical to the original.
+- **True audio length via ffprobe:** the audio length used for sync is resolved in the following priority order: first the true value measured with `ffprobe`, then the site metadata (`audioDuration`, ms->s), and finally the built video duration.
+- **"Audio is king" sync:** final length = audio length. If the animation is meaningfully shorter than the audio (`TOLERANCE = 0.05s`), it is looped from the start; if longer, it is cut with `-t` when the audio ends; the audio is never padded with silence.
+- **GraphQL details (bulk):**
+  - The endpoint is public and **requires no auth**; requests send a browser User-Agent and `Origin: https://blerp.com`.
+  - Although the request sends `perPage=50`, **the server caps the response at 12 items per page**; `pageInfo.pageCount`/`itemCount` are unreliable (always 12) and are not used — only `pageInfo.hasNextPage` is trusted for loop control.
+  - Pagination stops when `hasNextPage` becomes false (or when no items remain); if `hasNextPage` never goes false, the `max_pages=1000` upper limit prevents an infinite loop.
+- **File naming (bulk):** `<title>_<biteId>.mp4`. Including the blerp ID in the name makes names unique **and** stable across runs (same blerp -> same name); this is the basis of the resume/skip behavior.
+- **Temporary files:** the WebP, MP3, PNG frames, intermediate animation, and concat list are kept in an auto-cleaned `TemporaryDirectory`; only the final MP4 persists.
+- **Console/encoding:** stdout/stderr are reconfigured to UTF-8, so the Windows console (cp1252) does not crash on Turkish characters or symbols such as `•`, `✓`, `✗`.
 
 ## Troubleshooting
 
-- **`HATA: Pillow gerekli.`** (ERROR: Pillow required) — Run `pip install Pillow`.
-- **`ffmpeg` / `ffprobe` not found (FileNotFoundError, etc.)** — FFmpeg is not installed or not on the `PATH`; verify with `ffmpeg -version`. (If FFmpeg fails during the merge step, the error is not caught and surfaces as a stack trace.)
-- **`HATA: URL'de geçerli bir blerp ID bulunamadı`** (ERROR: no valid blerp ID found in the URL) — The URL you provided does not contain a 24-character blerp ID; use the full address of the soundbite page directly.
-- **`HATA: <url> -> HTTP 403`** / **`HATA: <url> indirilemedi`** (ERROR: <url> could not be downloaded) — The CDN or site may have blocked access; check your connection and the URL and try again.
-- **`HATA: Sayfada __NEXT_DATA__ bulunamadı`** (ERROR: __NEXT_DATA__ not found on the page) or **`HATA: Apollo state içinde Bite nesnesi yok.`** (ERROR: no Bite object in the Apollo state) — Blerp's page structure may have changed; the tool may need to be updated.
-- **`HATA: Bu blerp için ses (mp3) URL'si bulunamadı.`** (ERROR: no audio (mp3) URL found for this blerp) / **`... görsel URL'si bulunamadı.`** (... no image URL found) — The relevant media data for this soundbite was not present on the page; try another blerp.
+- **`HATA: Pillow gerekli.`** ("ERROR: Pillow required.") — run `pip install Pillow`.
+- **`'ffmpeg' / 'ffprobe' bulunamadı` (FileNotFoundError) or mux/probe fails** — make sure ffmpeg and ffprobe are installed and on PATH (`ffmpeg -version`, `ffprobe -version`).
+- **`HTTP 403` / download failed** — the site/CDN blocks the default urllib User-Agent; the script already sends a browser UA. If the error persists, check for a network/access issue. The script has no network retry/backoff; in single mode an error ends the program, while in bulk mode only that blerp is skipped.
+- **`Sayfada __NEXT_DATA__ bulunamadı (site yapısı değişmiş olabilir).`** ("__NEXT_DATA__ not found on the page (the site structure may have changed).") — single-mode scraping depends on the site's `__NEXT_DATA__`/Apollo structure; the site structure may have changed.
+- **`Kullanıcı bulunamadı: <ad>`** ("User not found: <name>") — in bulk mode, the username is wrong or the user does not exist.
+- **`Bu blerp için ses/görsel URL'si bulunamadı.`** ("No audio/image URL found for this blerp.") — the expected `audio.mp3.url`/`image.original.url` fields were not found. In bulk mode, items with missing media are silently dropped from the list.
+- **`İptal edildi.`** ("Cancelled.") — the operation was stopped with Ctrl+C.
+- **Static / non-WebP image:** if ANMF durations cannot be read, single/multiple frames are still processed using Pillow + the 40ms default duration.
 
 ## Disclaimer
 
-This tool is for personal and educational purposes only. Before using it, make sure you comply with [Blerp](https://blerp.com)'s terms of use and terms of service. Only download content that you have the right to download and use. The copyrights of the downloaded audio and images belong to their respective owners; all responsibility for the use of this content rests with the user.
+This tool should be used only in compliance with Blerp's Terms of Service (ToS) and only for content you have the right to download. The copyright and usage terms of the downloaded content are your responsibility; downloading, distributing, or republishing third-party content without permission is your own responsibility. In bulk mode, be considerate to the service by leaving a wait between requests with `--delay`.
