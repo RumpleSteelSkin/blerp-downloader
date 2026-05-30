@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Üretilen medya çıktıları / indirilen örnekler
+*.mp4
+*.webp
+*.mp3
+*.gif
+*.png
+
+# Geçici dosyalar
+*.concat.txt
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
