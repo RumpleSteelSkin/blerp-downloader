@@ -169,7 +169,7 @@ Windows kurulum sihirbazı için [Inno Setup 6](https://jrsoftware.org/isinfo.ph
 ISCC installer.iss
 ```
 
-Kurulum dosyası (`dist/installer/BlerpDownloader-Setup-1.0.0.exe`) her iki exe'yi kurar, Başlat Menüsü / masaüstü kısayolları oluşturur ve yayıncı olarak **RumpleSteelSkin**'i gösterir.
+Kurulum dosyası (`dist/installer/BlerpDownloader-Setup-1.0.0.exe`) her iki exe'yi kurar, Başlat Menüsü / masaüstü kısayolları oluşturur ve yayıncı olarak **RumpleSteelSkin**'i gösterir. Kurulum **kullanıcı bazlıdır (yönetici sormaz)** ve ffmpeg `PATH`'te yoksa kurulum sırasında **winget** ile otomatik kurar — yani son kullanıcının **ne Python'a ne de ffmpeg'e** elle ihtiyacı olur. (winget yoksa installer ffmpeg indirme linkini gösterir.)
 
 ## Sorun Giderme
 

@@ -169,7 +169,7 @@ To build a Windows setup wizard, install [Inno Setup 6](https://jrsoftware.org/i
 ISCC installer.iss
 ```
 
-The installer (`dist/installer/BlerpDownloader-Setup-1.0.0.exe`) installs both executables, creates Start Menu / desktop shortcuts, and lists **RumpleSteelSkin** as the publisher.
+The installer (`dist/installer/BlerpDownloader-Setup-1.0.0.exe`) installs both executables, creates Start Menu / desktop shortcuts, and lists **RumpleSteelSkin** as the publisher. It installs **per-user (no admin prompt)** and, if ffmpeg is not already on the `PATH`, fetches it automatically via **winget** during setup — so the end user needs **neither Python nor ffmpeg** pre-installed. (If winget is unavailable, the installer shows the ffmpeg download link instead.)
 
 ## Troubleshooting
 

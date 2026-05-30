@@ -36,6 +36,8 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+; Per-user kurulum: UAC gerekmez VE winget kullanıcı bağlamında güvenilir çalışır.
+PrivilegesRequired=lowest
 
 [Languages]
 Name: "turkish"; MessagesFile: "compiler:Languages\Turkish.isl"
@@ -56,3 +58,40 @@ Name: "{autodesktop}\{#MyAppName}";  Filename: "{app}\{#MyAppExe}"; Tasks: deskt
 
 [Run]
 Filename: "{app}\{#MyAppExe}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+{ ffmpeg yoksa kurulum sırasında winget ile kurar (uygulamanın tek dış bağımlılığı). }
+{ NOT: kod içi metinler bilinçli ASCII — .iss BOM'suz olduğunda Türkçe karakter bozulmasın diye. }
+
+function CmdSucceeds(const Cmd: string): Boolean;
+var
+  rc: Integer;
+begin
+  Result := Exec(ExpandConstant('{cmd}'), '/C ' + Cmd + ' >nul 2>&1', '',
+                 SW_HIDE, ewWaitUntilTerminated, rc) and (rc = 0);
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  rc: Integer;
+begin
+  if CurStep <> ssPostInstall then
+    Exit;
+  if CmdSucceeds('where ffmpeg') then
+    Exit;  { ffmpeg zaten PATH'te }
+
+  if CmdSucceeds('where winget') then
+  begin
+    WizardForm.StatusLabel.Caption :=
+      'ffmpeg kuruluyor (winget) - birkac dakika surebilir...';
+    WizardForm.Refresh;
+    Exec(ExpandConstant('{cmd}'),
+         '/C winget install --id Gyan.FFmpeg -e --accept-package-agreements --accept-source-agreements',
+         '', SW_HIDE, ewWaitUntilTerminated, rc);
+  end
+  else
+    MsgBox('ffmpeg bulunamadi ve winget yok.' + #13#10 +
+           'Uygulamanin video uretebilmesi icin ffmpeg kurup PATH e ekleyin:' + #13#10 +
+           'https://ffmpeg.org/download.html',
+           mbInformation, MB_OK);
+end;
