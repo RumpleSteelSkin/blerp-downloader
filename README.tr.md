@@ -67,19 +67,19 @@ Tek mod, sürecin 5 adımını (`[1/5]`...`[5/5]`) ekrana basar.
 
 ```bash
 # --user ile kullanıcı adı
-python blerp_to_mp4.py --user cainethedark
+python blerp_to_mp4.py --user blerpusername
 
 # ya da profil URL'si (/u/<kullanıcı>)
-python blerp_to_mp4.py "https://blerp.com/u/cainethedark"
+python blerp_to_mp4.py "https://blerp.com/u/blerpusername"
 
 # Yalnızca ilk 10 blerp
-python blerp_to_mp4.py --user cainethedark --limit 10
+python blerp_to_mp4.py --user blerpusername --limit 10
 
 # Çıktı klasörünü belirt (varsayılan: ./<kullanıcı>/)
-python blerp_to_mp4.py --user cainethedark -o klasor/
+python blerp_to_mp4.py --user blerpusername -o klasor/
 
 # Var olan dosyaların üzerine yaz (varsayılan: atla)
-python blerp_to_mp4.py --user cainethedark --overwrite
+python blerp_to_mp4.py --user blerpusername --overwrite
 ```
 
 Toplu modda dosyalar `<başlık>_<biteId>.mp4` olarak adlandırılır ve var olanlar atlanır (resume). İşlem sonunda `<n> indirildi, <n> atlandı, <n> hata` özeti basılır.

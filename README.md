@@ -67,19 +67,19 @@ Single mode prints the 5 steps of the process (`[1/5]`...`[5/5]`) to the screen.
 
 ```bash
 # Username via --user
-python blerp_to_mp4.py --user cainethedark
+python blerp_to_mp4.py --user blerpusername
 
 # or a profile URL (/u/<username>)
-python blerp_to_mp4.py "https://blerp.com/u/cainethedark"
+python blerp_to_mp4.py "https://blerp.com/u/blerpusername"
 
 # Only the first 10 blerps
-python blerp_to_mp4.py --user cainethedark --limit 10
+python blerp_to_mp4.py --user blerpusername --limit 10
 
 # Specify the output folder (default: ./<username>/)
-python blerp_to_mp4.py --user cainethedark -o klasor/
+python blerp_to_mp4.py --user blerpusername -o klasor/
 
 # Overwrite existing files (default: skip)
-python blerp_to_mp4.py --user cainethedark --overwrite
+python blerp_to_mp4.py --user blerpusername --overwrite
 ```
 
 In bulk mode, files are named `<title>_<biteId>.mp4` and existing ones are skipped (resume). At the end of the run, a summary is printed: `<n> indirildi, <n> atlandı, <n> hata` ("<n> downloaded, <n> skipped, <n> errors").
