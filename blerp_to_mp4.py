@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 import struct
 import subprocess
 import sys
@@ -68,6 +69,26 @@ __author__ = "RumpleSteelSkin"
 __version__ = "1.0.0"
 APP_NAME = "Blerp → MP4 İndirici"
 SIGNATURE = f"By {__author__}"
+
+# Pencereli (GUI) exe'de ffmpeg alt süreçleri konsol penceresi açmasın.
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+# --- FFmpeg (tek dış bağımlılık) yönlendirmesi ---
+FFMPEG_DOWNLOAD_URL = "https://ffmpeg.org/download.html"
+WINGET_FFMPEG = "winget install Gyan.FFmpeg"
+FFMPEG_HELP = (
+    "FFmpeg bulunamadı — bu uygulama videoyu birleştirmek için FFmpeg'e ihtiyaç duyar.\n\n"
+    "Windows'ta en kolay kurulum (komut istemine/PowerShell'e yazın):\n"
+    f"    {WINGET_FFMPEG}\n\n"
+    f"Alternatif: {FFMPEG_DOWNLOAD_URL} adresinden indirip\n"
+    "ffmpeg.exe ve ffprobe.exe'yi PATH'e ekleyin.\n\n"
+    "Kurduktan sonra uygulamayı yeniden başlatın."
+)
+
+
+def has_ffmpeg() -> bool:
+    """ffmpeg ve ffprobe PATH'te mi? (video üretimi için ikisi de şart)."""
+    return shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
 
 
 class BlerpError(Exception):
@@ -315,7 +336,7 @@ def probe_duration(media_path: Path) -> float | None:
         out = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", str(media_path)],
-            capture_output=True, text=True, check=True,
+            capture_output=True, text=True, check=True, creationflags=_NO_WINDOW,
         ).stdout.strip()
         return float(out)
     except (subprocess.CalledProcessError, ValueError):
@@ -345,7 +366,7 @@ def build_animation_video(frames: list[Path], durations_ms: list[int], out_path:
         "-movflags", "+faststart",
         str(out_path),
     ]
-    subprocess.run(cmd, check=True)
+    subprocess.run(cmd, check=True, creationflags=_NO_WINDOW)
     list_file.unlink(missing_ok=True)
     return sum(durations_ms) / 1000.0
 
@@ -396,7 +417,7 @@ def mux(anim_video: Path, audio_path: Path, plan: SyncPlan, out_path: Path) -> N
         "-movflags", "+faststart",
         str(out_path),
     ]
-    subprocess.run(cmd, check=True)
+    subprocess.run(cmd, check=True, creationflags=_NO_WINDOW)
 
 
 # --------------------------------------------------------------------------- #
@@ -507,6 +528,10 @@ def main() -> None:
     ap.add_argument("--overwrite", action="store_true",
                     help="Toplu modda var olan dosyaların üzerine yaz (varsayılan: atla)")
     args = ap.parse_args()
+
+    if not has_ffmpeg():
+        print(FFMPEG_HELP, file=sys.stderr)
+        sys.exit(1)
 
     username = args.user or parse_username(args.target or "")
     try:

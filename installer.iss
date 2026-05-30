@@ -90,8 +90,10 @@ begin
          '', SW_HIDE, ewWaitUntilTerminated, rc);
   end
   else
-    MsgBox('ffmpeg bulunamadi ve winget yok.' + #13#10 +
-           'Uygulamanin video uretebilmesi icin ffmpeg kurup PATH e ekleyin:' + #13#10 +
-           'https://ffmpeg.org/download.html',
+    MsgBox('ffmpeg bulunamadi (winget de yok).' + #13#10 + #13#10 +
+           'Uygulamanin video uretebilmesi icin ffmpeg gerekir:' + #13#10 +
+           '  - winget varsa :  winget install Gyan.FFmpeg' + #13#10 +
+           '  - veya indirin :  https://ffmpeg.org/download.html  (PATH e ekleyin)' + #13#10 + #13#10 +
+           'Not: ffmpeg olmadan da uygulama acilir; eksikse sizi tekrar yonlendirir.',
            mbInformation, MB_OK);
 end;

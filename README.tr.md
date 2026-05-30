@@ -10,6 +10,14 @@
 
 Bir Blerp soundbite'ının animasyonlu görselini (WebP) ve sesini (MP3) indirip FFmpeg ile birleştirerek MP4 üretir.
 
+> ⚙️ **Tek dış gereksinim FFmpeg'dir.** Geri kalan her şey (Python, Pillow) paketlenmiş sürümde gömülüdür. FFmpeg yoksa **uygulama çökmek yerine sizi yönlendirir** — Windows'ta en hızlı çözüm:
+>
+> ```bash
+> winget install Gyan.FFmpeg
+> ```
+>
+> Sonra uygulamayı yeniden başlatın. (Installer da FFmpeg'i winget ile otomatik kurar.) Alternatifler için [Sorun Giderme](#sorun-giderme) bölümüne bakın.
+
 ## Özellikler
 
 - **İki çalışma modu:** Tek bir soundbite indir ya da bir kullanıcının TÜM blerp'lerini toplu indir.
@@ -174,7 +182,7 @@ Kurulum dosyası (`dist/installer/BlerpDownloader-Setup-1.0.0.exe`) her iki exe'
 ## Sorun Giderme
 
 - **`HATA: Pillow gerekli.`** — `pip install Pillow` çalıştırın.
-- **`'ffmpeg' / 'ffprobe' bulunamadı` (FileNotFoundError) ya da mux/probe başarısız** — ffmpeg ve ffprobe'un kurulu ve PATH üzerinde olduğundan emin olun (`ffmpeg -version`, `ffprobe -version`).
+- **FFmpeg bulunamadı** — uygulama bunu algılar ve çökmek yerine sizi yönlendirir (CLI çözümü yazdırır; GUI winget ile kurmayı önerir). En hızlısı: `winget install Gyan.FFmpeg`, sonra **uygulamayı yeniden başlatın**. Doğrulama: `ffmpeg -version` / `ffprobe -version`. Alternatif: <https://ffmpeg.org/download.html> adresinden indirip `PATH`'e ekleyin ya da `choco install ffmpeg` / `scoop install ffmpeg`.
 - **`HTTP 403` / indirilemedi** — site/CDN varsayılan urllib User-Agent'ını engeller; betik zaten tarayıcı UA'sı gönderir. Hata sürerse ağ/erişim sorununu kontrol edin. Betikte ağ yeniden deneme/backoff yoktur; tek modda hata programı bitirir, toplu modda yalnızca o blerp atlanır.
 - **`Sayfada __NEXT_DATA__ bulunamadı (site yapısı değişmiş olabilir).`** — Tek-mod scraping'i sitenin `__NEXT_DATA__`/Apollo yapısına bağlıdır; site yapısı değişmiş olabilir.
 - **`Kullanıcı bulunamadı: <ad>`** — Toplu modda kullanıcı adı hatalı ya da kullanıcı yok.

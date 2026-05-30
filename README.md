@@ -10,6 +10,14 @@
 
 Downloads a Blerp soundbite's animated image (WebP) and its audio (MP3), then combines them with FFmpeg to produce an MP4.
 
+> ⚙️ **The only external requirement is FFmpeg.** Everything else (Python, Pillow) is bundled in the packaged build. If FFmpeg is missing, **the app guides you** instead of crashing — the quickest fix on Windows is:
+>
+> ```bash
+> winget install Gyan.FFmpeg
+> ```
+>
+> Then restart the app. (The installer also installs FFmpeg automatically via winget.) See [Troubleshooting](#troubleshooting) for alternatives.
+
 ## Features
 
 - **Two operating modes:** download a single soundbite, or bulk-download ALL of a user's blerps.
@@ -174,7 +182,7 @@ The installer (`dist/installer/BlerpDownloader-Setup-1.0.0.exe`) installs both e
 ## Troubleshooting
 
 - **`HATA: Pillow gerekli.`** ("ERROR: Pillow required.") — run `pip install Pillow`.
-- **`'ffmpeg' / 'ffprobe' bulunamadı` (FileNotFoundError) or mux/probe fails** — make sure ffmpeg and ffprobe are installed and on PATH (`ffmpeg -version`, `ffprobe -version`).
+- **FFmpeg not found** — the app detects this and guides you instead of crashing (the CLI prints the fix; the GUI offers to install it via winget). Quickest fix: `winget install Gyan.FFmpeg`, then **restart the app**. Verify with `ffmpeg -version` / `ffprobe -version`. Alternatives: download from <https://ffmpeg.org/download.html> and add it to `PATH`, or `choco install ffmpeg` / `scoop install ffmpeg`.
 - **`HTTP 403` / download failed** — the site/CDN blocks the default urllib User-Agent; the script already sends a browser UA. If the error persists, check for a network/access issue. The script has no network retry/backoff; in single mode an error ends the program, while in bulk mode only that blerp is skipped.
 - **`Sayfada __NEXT_DATA__ bulunamadı (site yapısı değişmiş olabilir).`** ("__NEXT_DATA__ not found on the page (the site structure may have changed).") — single-mode scraping depends on the site's `__NEXT_DATA__`/Apollo structure; the site structure may have changed.
 - **`Kullanıcı bulunamadı: <ad>`** ("User not found: <name>") — in bulk mode, the username is wrong or the user does not exist.

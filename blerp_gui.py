@@ -19,11 +19,14 @@ Mimari notu:
 from __future__ import annotations
 
 import queue
+import shutil
+import subprocess
 import sys
 import threading
 import tkinter as tk
+import webbrowser
 from pathlib import Path
-from tkinter import filedialog, ttk
+from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
 import blerp_to_mp4 as core
@@ -126,6 +129,50 @@ class BlerpGUI:
             self.out.insert(0, d)
 
     # ------------------------------------------------------------------ #
+    #  FFmpeg yönlendirmesi (tek dış bağımlılık eksikse)
+    # ------------------------------------------------------------------ #
+    def _offer_ffmpeg(self) -> None:
+        """ffmpeg yoksa kullanıcıyı yönlendirir: winget varsa kurmayı önerir,
+        yoksa bilgilendirip indirme sayfasını açar."""
+        if shutil.which("winget"):
+            if messagebox.askyesno(
+                "FFmpeg gerekli",
+                core.FFMPEG_HELP + "\n\nFFmpeg'i şimdi winget ile kurmayı deneyeyim mi?",
+            ):
+                self._install_ffmpeg()
+            return
+        messagebox.showwarning("FFmpeg gerekli", core.FFMPEG_HELP)
+        webbrowser.open(core.FFMPEG_DOWNLOAD_URL)
+
+    def _install_ffmpeg(self) -> None:
+        """winget ile ffmpeg'i arka planda kurar (pencere donmaz)."""
+        if self.worker and self.worker.is_alive():
+            return
+        self.dl_btn.configure(state="disabled")
+        self.status.configure(text="FFmpeg kuruluyor…")
+        self.worker = threading.Thread(target=self._winget_ffmpeg, daemon=True)
+        self.worker.start()
+
+    def _winget_ffmpeg(self) -> None:
+        self.q.put(("log", "FFmpeg kuruluyor (winget) — birkaç dakika sürebilir…"))
+        try:
+            subprocess.run(
+                ["winget", "install", "--id", "Gyan.FFmpeg", "-e",
+                 "--accept-package-agreements", "--accept-source-agreements"],
+                check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            if core.has_ffmpeg():
+                self.q.put(("done", "✓ FFmpeg kuruldu. Artık 'İndir'e basabilirsiniz."))
+            else:
+                self.q.put(("done", "FFmpeg kuruldu — değişikliğin etkili olması için "
+                                    "uygulamayı KAPATIP yeniden açın."))
+        except Exception as e:
+            self.q.put(("error", f"FFmpeg kurulamadı: {e}  ·  {core.FFMPEG_DOWNLOAD_URL}"))
+        finally:
+            self.q.put(("finish", None))
+
+    # ------------------------------------------------------------------ #
     #  Başlat / arka plan işi (GUI widget'larına DOKUNMAZ — sadece queue)
     # ------------------------------------------------------------------ #
     def _start(self) -> None:
@@ -134,6 +181,9 @@ class BlerpGUI:
         target = self.target.get().strip()
         if not target:
             self._log("⚠ Lütfen bir URL veya kullanıcı adı girin.")
+            return
+        if not core.has_ffmpeg():        # video üretimi için ffmpeg şart
+            self._offer_ffmpeg()
             return
         limit_text = self.limit.get().strip()
         try:
