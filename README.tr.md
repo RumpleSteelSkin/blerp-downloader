@@ -86,6 +86,16 @@ Toplu modda dosyalar `<başlık>_<biteId>.mp4` olarak adlandırılır ve var ola
 
 > **Not:** Hem `--user` (veya bir `/u/` profil URL'si) hem de bir soundbite URL'si birlikte verilirse toplu mod kazanır; tek-blerp URL'si yok sayılır.
 
+### Grafik arayüz (GUI)
+
+Yalnızca Python standart kütüphanesini kullanan (ek bağımlılık yok) basit bir Tkinter arayüzü gelir:
+
+```bash
+python blerp_gui.py
+```
+
+Tek kutuya bir soundbite URL'si **ya da** kullanıcı adı / profil URL'si yapıştırın (mod otomatik algılanır), isterseniz bir çıktı klasörü seçin ve **İndir**'e basın. Bir ilerleme çubuğu ve canlı log gösterilir; uzun toplu indirmeler çalışırken **Durdur** ile kesilebilir.
+
 ## Seçenekler
 
 | Argüman | Açıklama |

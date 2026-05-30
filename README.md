@@ -86,6 +86,16 @@ In bulk mode, files are named `<title>_<biteId>.mp4` and existing ones are skipp
 
 > **Note:** If both `--user` (or a `/u/` profile URL) and a soundbite URL are given together, bulk mode wins; the single-blerp URL is ignored.
 
+### Graphical interface (GUI)
+
+A minimal Tkinter GUI (Python standard library — no extra dependencies) is included:
+
+```bash
+python blerp_gui.py
+```
+
+Paste a soundbite URL **or** a username / profile URL into the single box (the mode is auto-detected), optionally pick an output folder, then click **İndir** (Download). A progress bar and a live log are shown; long bulk downloads can be stopped mid-run with **Durdur** (Stop).
+
 ## Options
 
 | Argument | Description |
