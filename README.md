@@ -1,64 +1,66 @@
 # Blerp Downloader (blerp_to_mp4)
 
-Bir [Blerp](https://blerp.com) soundbite URL'sinden animasyonlu görseli (WebP) ve sesi (MP3) indirip, bunları FFmpeg ile birleştirerek tek bir **MP4** dosyası üreten, tek dosyalık bir Python 3 komut satırı aracı.
+> 🌐 **English** · [Türkçe](README.tr.md)
 
-Bir blerp aslında "ses + ona eşlik eden animasyonlu görsel" ikilisidir. Bu araç ikisini de tek bir paylaşılabilir, oynatılabilir videoda toplar.
+A single-file Python 3 command-line tool that downloads the animated image (WebP) and audio (MP3) from a [Blerp](https://blerp.com) soundbite URL and merges them with FFmpeg into a single **MP4** file.
 
-## Özellikler
+A blerp is essentially a pairing of "audio + an accompanying animated image." This tool combines the two into a single shareable, playable video.
 
-- Blerp soundbite sayfasını otomatik tarar; sayfanın içindeki `__NEXT_DATA__` (Apollo state) verisinden ses (MP3) ve görsel (WebP) bağlantılarını çözer.
-- Animasyonlu WebP'yi PNG karelerine ayırır ve her karenin **gerçek süresini** WebP'nin ham ANMF chunk'larından okuyarak doğru zamanlamayı korur.
-- Statik (animasyonsuz) görselleri de destekler; tek kareyle makul bir varsayılan süre kullanır.
-- FFmpeg concat demuxer ile değişken kare süreli, sessiz bir H.264 animasyon videosu kurar, ardından sesle birleştirir.
-- Akıllı senkronizasyon politikası: **ses kraldır**. Nihai videonun uzunluğu sesin uzunluğuna eşitlenir.
-  - Animasyon sesten kısaysa baştan döngülenir.
-  - Animasyon sesten uzunsa, ses bittiğinde kesilir.
-  - Ses asla kesilmez.
-- Ses uzunluğunu önce gerçek dosyadan (`ffprobe`), o olmazsa site metadatasından, o da yoksa video süresinden belirler.
-- Çıktı: web oynatımı için optimize edilmiş (`+faststart`), `yuv420p` H.264 video + 192 kbps AAC ses.
-- Türkçe karakterli başlıklarda Windows konsolunun çökmemesi için çıktı UTF-8'e ayarlanır; dosya adı geçersiz karakterlerden temizlenir.
+## Features
 
-## Gereksinimler
+- Automatically scrapes the Blerp soundbite page; it resolves the audio (MP3) and image (WebP) links from the page's `__NEXT_DATA__` (Apollo state) data.
+- Splits the animated WebP into PNG frames and preserves correct timing by reading each frame's **actual duration** from the WebP's raw ANMF chunks.
+- Also supports static (non-animated) images; uses a reasonable default duration with a single frame.
+- Builds a silent, variable-frame-duration H.264 animation video with the FFmpeg concat demuxer, then merges it with the audio.
+- Smart synchronization policy: **audio is king**. The final video's length is set equal to the audio's length.
+  - If the animation is shorter than the audio, it is looped from the start.
+  - If the animation is longer than the audio, it is cut off when the audio ends.
+  - The audio is never cut off.
+- Determines the audio length first from the actual file (`ffprobe`), failing that from the site metadata, and failing that from the video duration.
+- Output: an H.264 video optimized for web playback (`+faststart`), `yuv420p`, plus 192 kbps AAC audio.
+- For titles containing Turkish characters, output is set to UTF-8 to prevent the Windows console from crashing; the file name is cleaned of invalid characters.
 
-- **Python 3.8+** — tip ipuçları `from __future__ import annotations` ile etkinleştirilen PEP 604 birleşim sözdizimini (`float | None`) kullanır.
-- **Pillow** `>=10.0` — animasyonlu WebP kare çıkarımı için (`pip install Pillow`).
-- **ffmpeg** ve **ffprobe** — sistemde kurulu ve `PATH` üzerinde erişilebilir olmalı.
+## Requirements
 
-> FFmpeg/ffprobe `pip` ile gelmez; sistemde ayrıca kurulu olmalıdır. `ffprobe` bulunmazsa araç çökmek yerine site metadatasına ya da video süresine düşerek çalışmaya devam eder.
+- **Python 3.8+** — type hints use the PEP 604 union syntax (`float | None`) enabled via `from __future__ import annotations`.
+- **Pillow** `>=10.0` — for animated WebP frame extraction (`pip install Pillow`).
+- **ffmpeg** and **ffprobe** — must be installed on the system and accessible on the `PATH`.
 
-## Kurulum
+> FFmpeg/ffprobe do not come with `pip`; they must be installed separately on the system. If `ffprobe` is not found, the tool keeps working by falling back to the site metadata or the video duration instead of crashing.
 
-1. Bu depoyu/dosyaları indirin.
-2. Python bağımlılığını kurun:
+## Installation
+
+1. Download this repository/files.
+2. Install the Python dependency:
 
    ```bash
    pip install -r requirements.txt
    ```
 
-   `requirements.txt` içeriği:
+   `requirements.txt` contents:
 
    ```
    Pillow>=10.0
    ```
 
-3. FFmpeg'in ve ffprobe'un kurulu ve `PATH`'te olduğundan emin olun:
+3. Make sure FFmpeg and ffprobe are installed and on the `PATH`:
 
    ```bash
    ffmpeg -version
    ffprobe -version
    ```
 
-   Komutlar sürüm bilgisi yazdırmıyorsa FFmpeg'i kurup `PATH`'inize ekleyin.
+   If the commands do not print version information, install FFmpeg and add it to your `PATH`.
 
-## Kullanım
+## Usage
 
-Temel kullanım — bir Blerp soundbite URL'si verin:
+Basic usage — provide a Blerp soundbite URL:
 
 ```bash
 python blerp_to_mp4.py "https://blerp.com/soundbites/<blerp-id>"
 ```
 
-Çıktı dosyasının yolunu/adını `-o` (veya `--out`) ile belirtin:
+Specify the output file's path/name with `-o` (or `--out`):
 
 ```bash
 python blerp_to_mp4.py "https://blerp.com/soundbites/<blerp-id>" -o cikti.mp4
@@ -68,110 +70,110 @@ python blerp_to_mp4.py "https://blerp.com/soundbites/<blerp-id>" -o cikti.mp4
 python blerp_to_mp4.py "https://blerp.com/soundbites/<blerp-id>" --out "C:\Videolar\benim_ses.mp4"
 ```
 
-`-o` verilmezse çıktı, soundbite başlığından türetilen `<başlık>.mp4` dosyası olur (örn. `Komik Ses.mp4`).
+If `-o` is not provided, the output is a `<title>.mp4` file derived from the soundbite title (e.g. `Komik Ses.mp4`).
 
-### Seçenekler
+### Options
 
-| Argüman | Açıklama |
+| Argument | Description |
 | --- | --- |
-| `url` | Blerp soundbite URL'si (zorunlu, konumsal argüman) |
-| `-o`, `--out` | Çıktı MP4 yolu (varsayılan: `<başlık>.mp4`) |
+| `url` | Blerp soundbite URL (required, positional argument) |
+| `-o`, `--out` | Output MP4 path (default: `<title>.mp4`) |
 
-Yardım için:
+For help:
 
 ```bash
 python blerp_to_mp4.py -h
 ```
 
-### Örnek çıktı
+### Example output
 
-Çalışırken ilerleme 5 adımda gösterilir:
+While running, progress is shown in 5 steps. The program prints these strings in Turkish; English glosses are added in parentheses below on the first occurrence:
 
 ```
-[1/5] Sayfa taranıyor: https://blerp.com/soundbites/<blerp-id>
-      Başlık : Örnek Ses
-      Ses    : https://.../audio.mp3
-      Görsel : https://.../image.webp
-[2/5] Medya indiriliyor...
-[3/5] WebP kareleri çıkarılıyor...
-      24 kare, ~3.60s animasyon
-[4/5] Animasyon videosu kuruluyor...
-      Plan: hedef=5.42s loop_video=True pad_audio=False
-[5/5] Ses + video birleştiriliyor...
+[1/5] Sayfa taranıyor: https://blerp.com/soundbites/<blerp-id>          (Scraping page)
+      Başlık : Örnek Ses                                                (Title)
+      Ses    : https://.../audio.mp3                                    (Audio)
+      Görsel : https://.../image.webp                                   (Image)
+[2/5] Medya indiriliyor...                                              (Downloading media)
+[3/5] WebP kareleri çıkarılıyor...                                      (Extracting WebP frames)
+      24 kare, ~3.60s animasyon                                         (24 frames, ~3.60s animation)
+[4/5] Animasyon videosu kuruluyor...                                    (Building animation video)
+      Plan: hedef=5.42s loop_video=True pad_audio=False                 (Plan: target=...)
+[5/5] Ses + video birleştiriliyor...                                    (Merging audio + video)
 
-✓ Bitti -> C:\...\Örnek Ses.mp4
+✓ Bitti -> C:\...\Örnek Ses.mp4                                         (Done)
 ```
 
-Sonuç tek bir `.mp4` dosyasıdır: süresi sesin uzunluğuna eşit, animasyonlu görüntü gerektiğinde döngülenmiş, H.264 video + AAC ses içeren, web oynatımı için `+faststart` ile optimize edilmiş bir video.
+The result is a single `.mp4` file: its duration equals the audio's length, the animated image looped when needed, containing H.264 video + AAC audio, optimized for web playback with `+faststart`.
 
-## Nasıl Çalışır
+## How It Works
 
-Araç tek bir doğrusal pipeline olarak çalışır (`run()` fonksiyonu, 5 adım):
+The tool runs as a single linear pipeline (the `run()` function, 5 steps):
 
 ```
 URL
- -> [1] Sayfayı indir, __NEXT_DATA__ (Apollo state) JSON'unu çıkar
-        Bite nesnesinden audio.mp3.url ve image.original.url'i çöz
- -> [2] Medyayı (WebP + MP3) geçici dizine indir
- -> [3] Animasyonlu WebP'yi Pillow ile PNG karelere ayır
-        (gerçek kare sürelerini ham ANMF chunk'larından okuyarak)
- -> [4] FFmpeg concat demuxer ile sessiz bir H.264 animasyon videosu kur
- -> [5] Sesi sync politikasına göre videoyla birleştir -> out.mp4
+ -> [1] Download the page, extract the __NEXT_DATA__ (Apollo state) JSON
+        Resolve audio.mp3.url and image.original.url from the Bite object
+ -> [2] Download the media (WebP + MP3) to a temporary directory
+ -> [3] Split the animated WebP into PNG frames with Pillow
+        (reading the actual frame durations from the raw ANMF chunks)
+ -> [4] Build a silent H.264 animation video with the FFmpeg concat demuxer
+ -> [5] Merge the audio with the video according to the sync policy -> out.mp4
 ```
 
-1. **Sayfa taranıyor** — `parse_bite_id()` URL içinden 24 karakterlik hex Blerp `ObjectId`'sini regex (`[0-9a-fA-F]{24}`) ile çıkarır. `fetch_bite_media()` sayfayı indirir, `__NEXT_DATA__` JSON'unu söker ve `props.pageProps.initialApolloState` altındaki Apollo Client cache'inden `Bite:<id>` nesnesini bulur. Sonuçta ses URL'si, görsel URL'si ve başlık çözülür; başlık, ses ve görsel bağlantıları yazdırılır.
-2. **Medya indiriliyor** — WebP görseli ve MP3 sesi, geçici bir dizine (`tempfile.TemporaryDirectory`) `image.webp` ve `audio.mp3` olarak yazılır. Tüm ara dosyalar bu dizinde kalır ve iş bittiğinde otomatik temizlenir.
-3. **WebP kareleri çıkarılıyor** — `extract_frames()` görseli Pillow ile açar, her kareyi `RGBA` PNG olarak diske yazar; gerçek kare sürelerini ham WebP byte'larından okur. Kare sayısı ve yaklaşık toplam animasyon süresi yazdırılır.
-4. **Animasyon videosu kuruluyor** — `build_animation_video()` bir concat liste dosyası yazar ve FFmpeg ile sessiz `anim.mp4` (libx264, yuv420p) üretir. Ardından `probe_duration()` ses süresini ölçer, `resolve_sync()` senkronizasyon planını (`SyncPlan`) kurar ve plan (`hedef`, `loop_video`, `pad_audio`) yazdırılır.
-5. **Ses + video birleştiriliyor** — `mux()`, sessiz videoyu ve sesi `SyncPlan`'a göre birleştirip nihai MP4'ü üretir ve `✓ Bitti -> <çıktı yolu>` yazdırılır.
+1. **Scraping the page** — `parse_bite_id()` extracts the 24-character hex Blerp `ObjectId` from the URL with a regex (`[0-9a-fA-F]{24}`). `fetch_bite_media()` downloads the page, parses out the `__NEXT_DATA__` JSON, and finds the `Bite:<id>` object in the Apollo Client cache under `props.pageProps.initialApolloState`. As a result, the audio URL, image URL, and title are resolved; the title and the audio and image links are printed.
+2. **Downloading media** — the WebP image and the MP3 audio are written to a temporary directory (`tempfile.TemporaryDirectory`) as `image.webp` and `audio.mp3`. All intermediate files stay in this directory and are automatically cleaned up when the job finishes.
+3. **Extracting WebP frames** — `extract_frames()` opens the image with Pillow and writes each frame to disk as an `RGBA` PNG; it reads the actual frame durations from the raw WebP bytes. The frame count and the approximate total animation duration are printed.
+4. **Building the animation video** — `build_animation_video()` writes a concat list file and produces a silent `anim.mp4` (libx264, yuv420p) with FFmpeg. Then `probe_duration()` measures the audio duration, `resolve_sync()` builds the synchronization plan (`SyncPlan`), and the plan (`hedef`, `loop_video`, `pad_audio`) is printed.
+5. **Merging audio + video** — `mux()` combines the silent video and the audio according to the `SyncPlan` to produce the final MP4, and `✓ Bitti -> <output path>` is printed.
 
-## Teknik Notlar
+## Technical Notes
 
 ### `__NEXT_DATA__` Apollo state scraping
 
-Blerp bir Next.js sitesidir. Sayfa HTML'i içinde, sunucu tarafında render edilen veriyi taşıyan bir `<script id="__NEXT_DATA__" type="application/json">...</script>` etiketi bulunur. İlgili veri `props.pageProps.initialApolloState` altındaki **Apollo Client cache**'inde tutulur. Önce `Bite:<id>` anahtarı denenir; eşleşme yoksa `Bite:` ile başlayan ilk nesneye düşülür. Apollo cache normalize edilmiş olduğu için iç içe nesneler `{"__ref": "Type:id"}` işaretçileriyle saklanır; `_resolve_ref()` bunları gerçek nesnelere çözer. Ses `audio.mp3.url`'den, görsel `image.original.url`'den okunur.
+Blerp is a Next.js site. Within the page HTML there is a `<script id="__NEXT_DATA__" type="application/json">...</script>` tag carrying the server-side rendered data. The relevant data is held in the **Apollo Client cache** under `props.pageProps.initialApolloState`. The `Bite:<id>` key is tried first; if there is no match, it falls back to the first object whose key starts with `Bite:`. Because the Apollo cache is normalized, nested objects are stored as `{"__ref": "Type:id"}` pointers; `_resolve_ref()` resolves these into the actual objects. The audio is read from `audio.mp3.url` and the image from `image.original.url`.
 
-> **User-Agent spoofing:** CDN ve site, varsayılan `urllib` User-Agent'ını **403** ile reddeder. Bu yüzden tüm istekler (`http_get()`) gerçek bir Chrome/120 masaüstü tarayıcı UA başlığıyla, 30 saniyelik zaman aşımıyla yapılır.
+> **User-Agent spoofing:** The CDN and site reject the default `urllib` User-Agent with a **403**. For this reason, all requests (`http_get()`) are made with a real Chrome/120 desktop browser UA header and a 30-second timeout.
 
-### Animasyonlu WebP — GIF değil
+### Animated WebP — not GIF
 
-Blerp görselleri GIF değil, **animasyonlu WebP**'dir. Burada iki teknik incelik vardır:
+Blerp images are not GIFs but **animated WebP**. There are two technical subtleties here:
 
-**a) FFmpeg animasyonlu WebP'yi decode edemez.** Bu yüzden kare ayrımı FFmpeg'e bırakılmaz; `extract_frames()` görseli **Pillow** ile açar, `n_frames` kadar `seek()` yapıp her kareyi `RGBA` PNG olarak diske yazar (`frame_00000.png`, `frame_00001.png`, ...).
+**a) FFmpeg cannot decode animated WebP.** For this reason, frame splitting is not left to FFmpeg; `extract_frames()` opens the image with **Pillow**, performs `seek()` for each of `n_frames`, and writes each frame to disk as an `RGBA` PNG (`frame_00000.png`, `frame_00001.png`, ...).
 
-**b) Pillow bu dosyalarda kare sürelerini güvenilir döndürmez (çoğunlukla 0 verir).** Gerçek kare süreleri (ground truth) doğrudan WebP'nin ham byte'larından okunur. `parse_anmf_durations()` RIFF/WEBP container'ını gezerek her `ANMF` (animation frame) chunk'ını bulur ve başlığın 12.–14. byte'larındaki **24-bit little-endian frame_duration** değerini (ms) çıkarır. RIFF chunk'ları çift hizalı olduğundan tek boyutlu payload'larda padding byte'ı atlanır.
+**b) Pillow does not reliably return frame durations for these files (it mostly returns 0).** The actual frame durations (ground truth) are read directly from the WebP's raw bytes. `parse_anmf_durations()` traverses the RIFF/WEBP container, finds each `ANMF` (animation frame) chunk, and extracts the **24-bit little-endian frame_duration** value (ms) from bytes 12–14 of the header. Since RIFF chunks are even-aligned, a padding byte is skipped on odd-sized payloads.
 
-Süre listesi kare sayısıyla hizalanır: eksik ya da 0 olan süreler **40 ms (~25 fps)** varsayılanıyla doldurulur. Statik (tek kareli) görsellerde de tek kare + makul bir varsayılan süre üretilir.
+The duration list is aligned with the frame count: missing or 0 durations are filled with a **40 ms (~25 fps)** default. For static (single-frame) images, a single frame plus a reasonable default duration is produced as well.
 
-### FFmpeg concat demuxer ile değişken kare süresi
+### Variable frame duration with the FFmpeg concat demuxer
 
-`build_animation_video()` bir **concat demuxer** liste dosyası (`*.concat.txt`, UTF-8) oluşturur. Her kare için `file '<yol>'` ve onun gerçek süresi `duration <saniye>` satırı yazılır (yollar FFmpeg uyumluluğu için ileri eğik çizgili ve tek tırnaklıdır). concat demuxer **son karenin `duration` değerini yok saydığı** için son kare listeye bir kez daha eklenir. Video `libx264` / `yuv420p` ile, değişken kare sürelerini korumak için `-vsync vfr` kullanılarak render edilir ve `+faststart` ile yazılır.
+`build_animation_video()` creates a **concat demuxer** list file (`*.concat.txt`, UTF-8). For each frame, a `file '<path>'` line and its actual duration `duration <seconds>` line are written (paths use forward slashes and single quotes for FFmpeg compatibility). Because the concat demuxer **ignores the `duration` value of the last frame**, the last frame is added to the list one more time. The video is rendered with `libx264` / `yuv420p`, using `-vsync vfr` to preserve the variable frame durations, and written with `+faststart`.
 
-### Ses süresi ölçümü ve "ses kraldır" senkronizasyonu
+### Audio duration measurement and "audio is king" synchronization
 
-Sitenin `audioDuration` metadatası her zaman güvenilir değildir. Bu yüzden nihai uzunluk belirlenmeden önce `probe_duration()` ile **ffprobe** kullanılarak indirilen MP3'ün **gerçek süresi** ölçülür. Ground truth bu ölçümdür; başarısız olursa sırasıyla metadata süresine, o da yoksa video süresine düşülür:
+The site's `audioDuration` metadata is not always reliable. For this reason, before the final length is determined, the **actual duration** of the downloaded MP3 is measured using **ffprobe** via `probe_duration()`. This measurement is the ground truth; if it fails, it falls back to the metadata duration, and failing that to the video duration:
 
 ```python
 audio_dur = probe_duration(mp3_path) or media.audio_duration_s or video_dur
 ```
 
-`resolve_sync()` politikası **"ses kraldır"** ilkesine dayanır (`TOLERANCE = 0.05s`) ve bir `SyncPlan` döndürür:
+The `resolve_sync()` policy is based on the **"audio is king"** principle (`TOLERANCE = 0.05s`) and returns a `SyncPlan`:
 
-- Nihai video uzunluğu **her zaman ses uzunluğuna** eşitlenir; video, `-t` ile ses uzunluğunda kesilir. Ses bir blerp'in ana içeriğidir, görsel onu süsler — bu yüzden ses asla kesilmez.
-- Animasyon sesten anlamlı ölçüde kısaysa (`video + TOLERANCE < ses`), ses dolana kadar **video baştan döngülenir** (`mux()` içinde `-stream_loop -1`).
-- Hedef zaten ses uzunluğu olduğundan ses, sessizlikle doldurulmaz (`pad_audio_with_silence` her zaman `False`'tur).
+- The final video length is **always** set equal to the audio length; the video is cut to the audio length with `-t`. The audio is the main content of a blerp, and the image merely adorns it — that is why the audio is never cut off.
+- If the animation is meaningfully shorter than the audio (`video + TOLERANCE < audio`), the **video is looped from the start** until the audio is filled (`-stream_loop -1` inside `mux()`).
+- Since the target is already the audio length, the audio is not padded with silence (`pad_audio_with_silence` is always `False`).
 
-Bu politika sabittir ve değiştirilebilir bir CLI seçeneği yoktur. Aynı şekilde kodek/kalite ayarları da sabittir: video `libx264` / `yuv420p`, ses `aac` 192 kbps — codec, bit hızı veya çözünürlük için CLI kontrolü yoktur.
+This policy is fixed and there is no CLI option to change it. Likewise, the codec/quality settings are fixed as well: video is `libx264` / `yuv420p`, audio is `aac` 192 kbps — there is no CLI control over the codec, bit rate, or resolution.
 
-## Sorun Giderme
+## Troubleshooting
 
-- **`HATA: Pillow gerekli.`** — `pip install Pillow` komutunu çalıştırın.
-- **`ffmpeg` / `ffprobe` bulunamadı (FileNotFoundError vb.)** — FFmpeg kurulu değil veya `PATH`'te değil; `ffmpeg -version` ile doğrulayın. (FFmpeg birleştirme adımında başarısız olursa hata yakalanmadan yığın izi olarak yansır.)
-- **`HATA: URL'de geçerli bir blerp ID bulunamadı`** — Verdiğiniz URL içinde 24 karakterlik blerp kimliği yok; doğrudan soundbite sayfasının tam adresini kullanın.
-- **`HATA: <url> -> HTTP 403` / `HATA: <url> indirilemedi`** — CDN veya site erişimi engellemiş olabilir; bağlantınızı ve URL'yi kontrol edip tekrar deneyin.
-- **`HATA: Sayfada __NEXT_DATA__ bulunamadı`** veya **`HATA: Apollo state içinde Bite nesnesi yok.`** — Blerp'in sayfa yapısı değişmiş olabilir; aracın güncellenmesi gerekebilir.
-- **`HATA: Bu blerp için ses (mp3) URL'si bulunamadı.`** / **`... görsel URL'si bulunamadı.`** — Bu soundbite için ilgili medya verisi sayfada yoktu; başka bir blerp deneyin.
+- **`HATA: Pillow gerekli.`** (ERROR: Pillow required) — Run `pip install Pillow`.
+- **`ffmpeg` / `ffprobe` not found (FileNotFoundError, etc.)** — FFmpeg is not installed or not on the `PATH`; verify with `ffmpeg -version`. (If FFmpeg fails during the merge step, the error is not caught and surfaces as a stack trace.)
+- **`HATA: URL'de geçerli bir blerp ID bulunamadı`** (ERROR: no valid blerp ID found in the URL) — The URL you provided does not contain a 24-character blerp ID; use the full address of the soundbite page directly.
+- **`HATA: <url> -> HTTP 403`** / **`HATA: <url> indirilemedi`** (ERROR: <url> could not be downloaded) — The CDN or site may have blocked access; check your connection and the URL and try again.
+- **`HATA: Sayfada __NEXT_DATA__ bulunamadı`** (ERROR: __NEXT_DATA__ not found on the page) or **`HATA: Apollo state içinde Bite nesnesi yok.`** (ERROR: no Bite object in the Apollo state) — Blerp's page structure may have changed; the tool may need to be updated.
+- **`HATA: Bu blerp için ses (mp3) URL'si bulunamadı.`** (ERROR: no audio (mp3) URL found for this blerp) / **`... görsel URL'si bulunamadı.`** (... no image URL found) — The relevant media data for this soundbite was not present on the page; try another blerp.
 
-## Yasal Uyarı
+## Disclaimer
 
-Bu araç yalnızca kişisel ve eğitim amaçlıdır. Kullanmadan önce [Blerp](https://blerp.com)'in kullanım koşullarına ve hizmet şartlarına uyduğunuzdan emin olun. Yalnızca indirmeye ve kullanmaya hakkınız olan içeriği indirin. İndirilen ses ve görsellerin telif hakları ilgili sahiplerine aittir; bu içeriğin kullanımına ilişkin tüm sorumluluk kullanıcıya aittir.
+This tool is for personal and educational purposes only. Before using it, make sure you comply with [Blerp](https://blerp.com)'s terms of use and terms of service. Only download content that you have the right to download and use. The copyrights of the downloaded audio and images belong to their respective owners; all responsibility for the use of this content rests with the user.
