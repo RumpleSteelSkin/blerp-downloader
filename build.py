@@ -2,18 +2,19 @@
 """
 build.py
 ========
-PyInstaller ile iki bağımsız .exe paketler (imza: By RumpleSteelSkin):
+Packages two standalone .exe files with PyInstaller (signature: By RumpleSteelSkin):
 
-  • dist/BlerpDownloader.exe  — GUI (pencereli, konsolsuz)
-  • dist/blerp.exe            — Konsol (komut satırı)
+  • dist/BlerpDownloader.exe  — GUI (windowed, no console)
+  • dist/blerp.exe            — Console (command line)
 
-İkonu (assets/icon.ico) hem exe ikonu olarak gömer hem de pencere ikonu için
-paketin içine ekler. İmza bilgisi (CompanyName/LegalCopyright) exe'nin
-"Özellikler > Ayrıntılar" sekmesine de yazılır (version_info.txt).
+Embeds the icon (assets/icon.ico) both as the exe icon and inside the bundle
+for the window icon. Signature info (CompanyName/LegalCopyright) is also
+written to the exe's "Properties > Details" tab (version_info.txt).
 
-Kullanım:  python build.py        (PyInstaller yoksa otomatik kurar)
+Usage:  python build.py        (installs PyInstaller automatically if missing)
 
-Not: ffmpeg/ffprobe exe'ye GÖMÜLMEZ; çalıştıran makinede PATH üzerinde olmalı.
+Note: ffmpeg/ffprobe are NOT bundled into the exe; they must be on PATH on
+the machine that runs it.
 """
 
 from __future__ import annotations
@@ -23,7 +24,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-import blerp_to_mp4 as core
+import blerp_downloader as core
+
+# The Windows console (cp1252) doesn't have the ✓ printed below when stdout
+# isn't a real console (e.g. piped); reconfigure to UTF-8 so it doesn't crash.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(encoding="utf-8", errors="replace")
 
 ROOT = Path(__file__).resolve().parent
 ICON = ROOT / "assets" / "icon.ico"
@@ -38,12 +45,12 @@ def ensure_pyinstaller() -> None:
     try:
         import PyInstaller  # noqa: F401
     except ImportError:
-        print("PyInstaller kuruluyor...")
+        print("Installing PyInstaller...")
         subprocess.run([sys.executable, "-m", "pip", "install", "pyinstaller"], check=True)
 
 
 def write_version_info() -> None:
-    """exe 'Özellikler' diyaloğunda görünen sürüm/imza kaynağını yazar."""
+    """Writes the version/signature resource shown in the exe's 'Properties' dialog."""
     VERSION_FILE.write_text(f"""# UTF-8
 VSVersionInfo(
   ffi=FixedFileInfo(
@@ -73,7 +80,7 @@ def pyinstaller(*args: str) -> None:
 
 def main() -> None:
     if not ICON.exists():
-        print("İkon yok; önce `python generate_logo.py` çalıştırın.")
+        print("No icon found; run `python generate_logo.py` first.")
         sys.exit(1)
     ensure_pyinstaller()
     write_version_info()
@@ -86,13 +93,13 @@ def main() -> None:
         "--add-data", add_data,
     ]
 
-    print("\n=== GUI (BlerpDownloader.exe) paketleniyor ===")
+    print("\n=== Packaging GUI (BlerpDownloader.exe) ===")
     pyinstaller(*common, "--windowed", "--name", "BlerpDownloader", "blerp_gui.py")
 
-    print("\n=== Konsol (blerp.exe) paketleniyor ===")
+    print("\n=== Packaging console (blerp.exe) ===")
     pyinstaller(*common, "--console", "--name", "blerp", "blerp_to_mp4.py")
 
-    print(f"\n✓ Bitti.  dist/ içinde:  BlerpDownloader.exe  +  blerp.exe   ·  By {AUTHOR}")
+    print(f"\n✓ Done.  In dist/:  BlerpDownloader.exe  +  blerp.exe   ·  By {AUTHOR}")
 
 
 if __name__ == "__main__":

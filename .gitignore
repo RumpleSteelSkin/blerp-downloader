@@ -6,25 +6,25 @@ __pycache__/
 venv/
 env/
 
-# Üretilen medya çıktıları / indirilen örnekler
+# Generated media outputs / downloaded samples
 *.mp4
 *.webp
 *.mp3
 *.gif
 *.png
 
-# Logo/ikon kaynakları yukarıdaki kurallara takılmasın (sürüm kontrolünde kalsın)
+# Don't let logo/icon assets get caught by the rules above (keep them in version control)
 !assets/
 !assets/*
 
-# PyInstaller / build çıktıları
+# PyInstaller / build outputs
 build/
 dist/
 *.spec
 *.manifest
 version_info.txt
 
-# Geçici dosyalar
+# Temporary files
 *.concat.txt
 .DS_Store
 Thumbs.db

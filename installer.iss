@@ -1,11 +1,11 @@
-; installer.iss — Blerp Downloader kurulum betiği (Inno Setup 6)
-; İmza / yayıncı: RumpleSteelSkin
+; installer.iss — Blerp Downloader setup script (Inno Setup 6)
+; Signature / publisher: RumpleSteelSkin
 ;
-; Derlemek için:
-;   1) python build.py          (dist/ içine exe'leri üretir)
-;   2) Inno Setup 6 kur (winget install JRSoftware.InnoSetup) ve:
+; To build:
+;   1) python build.py          (produces the exes into dist/)
+;   2) Install Inno Setup 6 (winget install JRSoftware.InnoSetup) and run:
 ;        ISCC installer.iss
-;   Çıktı:  dist/installer/BlerpDownloader-Setup-1.0.0.exe
+;   Output:  dist/installer/BlerpDownloader-Setup-1.0.0.exe
 
 #define MyAppName "Blerp Downloader"
 #define MyAppVersion "1.0.0"
@@ -36,7 +36,7 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-; Per-user kurulum: UAC gerekmez VE winget kullanıcı bağlamında güvenilir çalışır.
+; Per-user install: no UAC prompt, AND winget runs reliably in the user's own context.
 PrivilegesRequired=lowest
 
 [Languages]
@@ -60,8 +60,7 @@ Name: "{autodesktop}\{#MyAppName}";  Filename: "{app}\{#MyAppExe}"; Tasks: deskt
 Filename: "{app}\{#MyAppExe}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; Flags: nowait postinstall skipifsilent
 
 [Code]
-{ ffmpeg yoksa kurulum sırasında winget ile kurar (uygulamanın tek dış bağımlılığı). }
-{ NOT: kod içi metinler bilinçli ASCII — .iss BOM'suz olduğunda Türkçe karakter bozulmasın diye. }
+{ If ffmpeg is missing, installs it via winget during setup (the app's one external dependency). }
 
 function CmdSucceeds(const Cmd: string): Boolean;
 var
@@ -78,22 +77,22 @@ begin
   if CurStep <> ssPostInstall then
     Exit;
   if CmdSucceeds('where ffmpeg') then
-    Exit;  { ffmpeg zaten PATH'te }
+    Exit;  { ffmpeg is already on PATH }
 
   if CmdSucceeds('where winget') then
   begin
     WizardForm.StatusLabel.Caption :=
-      'ffmpeg kuruluyor (winget) - birkac dakika surebilir...';
+      'Installing ffmpeg (winget) - this can take a few minutes...';
     WizardForm.Refresh;
     Exec(ExpandConstant('{cmd}'),
          '/C winget install --id Gyan.FFmpeg -e --accept-package-agreements --accept-source-agreements',
          '', SW_HIDE, ewWaitUntilTerminated, rc);
   end
   else
-    MsgBox('ffmpeg bulunamadi (winget de yok).' + #13#10 + #13#10 +
-           'Uygulamanin video uretebilmesi icin ffmpeg gerekir:' + #13#10 +
-           '  - winget varsa :  winget install Gyan.FFmpeg' + #13#10 +
-           '  - veya indirin :  https://ffmpeg.org/download.html  (PATH e ekleyin)' + #13#10 + #13#10 +
-           'Not: ffmpeg olmadan da uygulama acilir; eksikse sizi tekrar yonlendirir.',
+    MsgBox('ffmpeg not found (winget is not available either).' + #13#10 + #13#10 +
+           'This app needs ffmpeg to produce video:' + #13#10 +
+           '  - if winget is available:  winget install Gyan.FFmpeg' + #13#10 +
+           '  - or download it from:  https://ffmpeg.org/download.html  (add it to PATH)' + #13#10 + #13#10 +
+           'Note: the app still opens without ffmpeg; it will guide you again if it is missing.',
            mbInformation, MB_OK);
 end;
