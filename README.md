@@ -26,24 +26,35 @@ Downloads a Blerp soundbite's animated image (WebP) and its audio (MP3), then co
 - **"Audio is king" sync:** the final video's length is matched to the audio length; if the animation is shorter it is looped, if longer it is cut, and the audio is never cut.
 - **Resume in bulk mode:** existing files are skipped, so an interrupted download continues where it left off instead of starting over.
 - **No authentication required:** bulk listing uses Blerp's public GraphQL API.
-- **Turkish interface:** all output and error messages are in Turkish.
+- **Persistent settings:** output folder, overwrite, bulk limit, and a custom FFmpeg location are remembered between runs — see [Settings](#settings).
+- **Clipboard watch (optional, GUI):** detects a copied Blerp soundbite link and either asks before downloading or downloads it automatically.
 
 ## Requirements
 
-- **Python 3.8+**
+- **Python 3.9+**
 - **ffmpeg** and **ffprobe** — both must be available on PATH (external binaries; not listed in `requirements.txt`).
 - **Pillow** (`Pillow>=10.0`) — for splitting the animated WebP into frames.
 
 ## Installation
 
+### 1. Get the code
+
 ```bash
-# Python dependency
+git clone https://github.com/RumpleSteelSkin/blerp-downloader.git
+cd blerp-downloader
+```
+
+> Prefer a ready-made Windows installer instead of running from source? See [Packaging (.exe & installer)](#packaging-exe--installer) — it builds `BlerpDownloader-Setup-1.0.0.exe`, which needs neither Python nor this clone step.
+
+### 2. Install the Python dependency
+
+```bash
 pip install -r requirements.txt
 # (or directly)
 pip install Pillow
 ```
 
-Installing ffmpeg/ffprobe:
+### 3. Install ffmpeg/ffprobe
 
 ```bash
 # Windows (winget)
@@ -96,7 +107,7 @@ python blerp_to_mp4.py --user blerpusername -o klasor/
 python blerp_to_mp4.py --user blerpusername --overwrite
 ```
 
-In bulk mode, files are named `<title>_<biteId>.mp4` and existing ones are skipped (resume). At the end of the run, a summary is printed: `<n> indirildi, <n> atlandı, <n> hata` ("<n> downloaded, <n> skipped, <n> errors").
+In bulk mode, files are named `<title>_<biteId>.mp4` and existing ones are skipped (resume). At the end of the run, a summary is printed: `Done: <n> downloaded, <n> skipped, <n> failed -> <output-path>`.
 
 > **Note:** If both `--user` (or a `/u/` profile URL) and a soundbite URL are given together, bulk mode wins; the single-blerp URL is ignored.
 
@@ -108,20 +119,33 @@ A minimal Tkinter GUI (Python standard library — no extra dependencies) is inc
 python blerp_gui.py
 ```
 
-Paste a soundbite URL **or** a username / profile URL into the single box (the mode is auto-detected), optionally pick an output folder, then click **İndir** (Download). A progress bar and a live log are shown; long bulk downloads can be stopped mid-run with **Durdur** (Stop).
+Paste a soundbite URL **or** a username / profile URL into the single box (the mode is auto-detected), optionally pick an output folder and/or an FFmpeg folder (only needed if it's not on `PATH`), then click **Download**. A progress bar and a live log are shown; long bulk downloads can be stopped mid-run with **Stop**.
+
+Two checkboxes enable clipboard watching: **Watch clipboard for Blerp links** detects a copied single-soundbite link while the window is open, and **Auto-download (skip confirmation)** decides whether it's downloaded right away or only after you confirm a prompt. Both fields and checkboxes (plus window size) are remembered for next time — see [Settings](#settings).
 
 ## Options
 
 | Argument | Description |
 |---|---|
 | `target` (positional, optional) | Soundbite URL **OR** `/u/<username>` profile URL |
-| `--user KULLANICI` | Download ALL of a user's blerps (bulk mode) |
+| `--user USERNAME` | Download ALL of a user's blerps (bulk mode) |
 | `-o`, `--out` | Single mode: output file \| Bulk mode: output folder |
 | `--limit N` | Bulk mode only: only the first N blerps (`bites[:N]`) |
 | `--delay SN` | Bulk mode: wait between blerps (seconds, default: `0.3`) |
-| `--overwrite` | Bulk mode: overwrite existing files (default: skip) |
+| `--overwrite` / `--no-overwrite` | Bulk mode: overwrite existing files / force skip, overriding the saved default |
 
-> `--limit`, `--delay`, and `--overwrite` take effect only in bulk mode. `-o/--out` is interpreted as a file in single mode and as a folder in bulk mode.
+> `--limit`, `--delay`, and `--overwrite` take effect only in bulk mode. `-o/--out` is interpreted as a file in single mode and as a folder in bulk mode. `-o`, `--limit`, `--delay`, and `--overwrite` all default to whatever is saved in [Settings](#settings) if present, otherwise to the values shown above.
+
+## Settings
+
+Output folder, overwrite, bulk limit/delay, a custom FFmpeg location, window size, and the clipboard-watch options are persisted in a small INI file (via Python's stdlib `configparser` — a database would be overkill for a handful of key-value settings):
+
+- Windows: `%APPDATA%\BlerpDownloader\settings.ini`
+- macOS/Linux: `~/.config/blerp-downloader/settings.ini`
+
+The **GUI** reads this file on startup to prefill its fields, and writes it back whenever a download starts or the window is closed — so whatever you last used becomes the new default. The **CLI** reads the same file for its argument defaults (`-o`, `--limit`, `--delay`, `--overwrite`) but never writes to it, so repeated/scripted CLI invocations stay deterministic regardless of what the GUI last saved. A missing or corrupted settings file is never fatal — it's ignored and the built-in defaults are used.
+
+The file is plain text and safe to edit by hand (e.g. to fix a bad `ffmpeg_dir` path) while the app is closed.
 
 ## How It Works
 
@@ -135,7 +159,7 @@ Paste a soundbite URL **or** a username / profile URL into the single box (the m
 
 ### Bulk listing (GraphQL)
 
-- First, the user's `_id` is found via the `userByUsername` query (a "Kullanıcı bulunamadı" / "User not found" error if the user does not exist).
+- First, the user's `_id` is found via the `userByUsername` query (a `User not found: <username>` error if the user does not exist).
 - The `soundEmotesFeaturedContentPagination` query is called page by page over the public GraphQL endpoint (`https://api.blerp.com/graphql`), which requires no authentication.
 - Because the listing response already includes each blerp's audio (`audio.mp3.url`) and image (`image.original.url`) URLs, no separate page download is needed per blerp.
 - Blerps are processed **sequentially** (one at a time, not in parallel); each blerp goes through the shared `process_bite` core. Bulk mode does not print the `[2/5]`...`[5/5]` sub-steps that single mode prints.
@@ -181,13 +205,13 @@ The installer (`dist/installer/BlerpDownloader-Setup-1.0.0.exe`) installs both e
 
 ## Troubleshooting
 
-- **`HATA: Pillow gerekli.`** ("ERROR: Pillow required.") — run `pip install Pillow`.
-- **FFmpeg not found** — the app detects this and guides you instead of crashing (the CLI prints the fix; the GUI offers to install it via winget). Quickest fix: `winget install Gyan.FFmpeg`, then **restart the app**. Verify with `ffmpeg -version` / `ffprobe -version`. Alternatives: download from <https://ffmpeg.org/download.html> and add it to `PATH`, or `choco install ffmpeg` / `scoop install ffmpeg`.
+- **`ERROR: Pillow is required.`** — run `pip install Pillow`.
+- **FFmpeg not found** — the app detects this and guides you instead of crashing (the CLI prints the fix; the GUI offers to install it via winget). Quickest fix: `winget install Gyan.FFmpeg`, then **restart the app**. Verify with `ffmpeg -version` / `ffprobe -version`. Alternatives: download from <https://ffmpeg.org/download.html> and add it to `PATH`, or `choco install ffmpeg` / `scoop install ffmpeg` — or, if it's installed somewhere you don't want on `PATH`, point the GUI's "FFmpeg folder" field (or `ffmpeg_dir` in [Settings](#settings)) at that folder instead.
 - **`HTTP 403` / download failed** — the site/CDN blocks the default urllib User-Agent; the script already sends a browser UA. If the error persists, check for a network/access issue. The script has no network retry/backoff; in single mode an error ends the program, while in bulk mode only that blerp is skipped.
-- **`Sayfada __NEXT_DATA__ bulunamadı (site yapısı değişmiş olabilir).`** ("__NEXT_DATA__ not found on the page (the site structure may have changed).") — single-mode scraping depends on the site's `__NEXT_DATA__`/Apollo structure; the site structure may have changed.
-- **`Kullanıcı bulunamadı: <ad>`** ("User not found: <name>") — in bulk mode, the username is wrong or the user does not exist.
-- **`Bu blerp için ses/görsel URL'si bulunamadı.`** ("No audio/image URL found for this blerp.") — the expected `audio.mp3.url`/`image.original.url` fields were not found. In bulk mode, items with missing media are silently dropped from the list.
-- **`İptal edildi.`** ("Cancelled.") — the operation was stopped with Ctrl+C.
+- **`__NEXT_DATA__ not found on the page (the site structure may have changed).`** — single-mode scraping depends on the site's `__NEXT_DATA__`/Apollo structure; the site structure may have changed.
+- **`User not found: <username>`** — in bulk mode, the username is wrong or the user does not exist.
+- **`No audio/image URL found for this blerp.`** — the expected `audio.mp3.url`/`image.original.url` fields were not found. In bulk mode, items with missing media are silently dropped from the list.
+- **`Cancelled.`** — the operation was stopped with Ctrl+C.
 - **Static / non-WebP image:** if ANMF durations cannot be read, single/multiple frames are still processed using Pillow + the 40ms default duration.
 
 ## Disclaimer

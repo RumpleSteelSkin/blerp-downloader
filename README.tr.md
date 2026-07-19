@@ -26,24 +26,35 @@ Bir Blerp soundbite'ının animasyonlu görselini (WebP) ve sesini (MP3) indirip
 - **"Ses kral" senkronu:** Nihai videonun uzunluğu sesin uzunluğuna eşitlenir; animasyon kısaysa döngülenir, uzunsa kesilir, ses asla kesilmez.
 - **Toplu modda resume:** Var olan dosyalar atlanır; yarıda kalan bir indirme baştan başlamadan kaldığı yerden sürer.
 - **Kimlik doğrulama gerektirmez:** Toplu listeleme, Blerp'in açık GraphQL API'sini kullanır.
-- **Türkçe arayüz:** Tüm çıktı ve hata mesajları Türkçedir.
+- **Kalıcı ayarlar:** Çıktı klasörü, üzerine yazma, toplu limit ve özel bir FFmpeg konumu çalıştırmalar arasında hatırlanır — bkz. [Ayarlar](#ayarlar).
+- **Panoyu izleme (opsiyonel, GUI):** Kopyalanan bir Blerp soundbite linkini algılar; ya indirmeden önce sorar ya da otomatik indirir.
 
 ## Gereksinimler
 
-- **Python 3.8+**
+- **Python 3.9+**
 - **ffmpeg** ve **ffprobe** — ikisi de PATH üzerinde erişilebilir olmalı (harici ikili dosyalar; `requirements.txt`'te yer almaz).
 - **Pillow** (`Pillow>=10.0`) — animasyonlu WebP'yi karelere ayırmak için.
 
 ## Kurulum
 
+### 1. Kaynak kodu indir
+
 ```bash
-# Python bağımlılığı
+git clone https://github.com/RumpleSteelSkin/blerp-downloader.git
+cd blerp-downloader
+```
+
+> Kaynaktan çalıştırmak yerine hazır bir Windows installer'ı mı tercih edersiniz? Bkz. [Paketleme (.exe & installer)](#paketleme-exe--installer) — `BlerpDownloader-Setup-1.0.0.exe`'yi üretir; ne Python'a ne de bu clone adımına ihtiyaç duyar.
+
+### 2. Python bağımlılığını kur
+
+```bash
 pip install -r requirements.txt
 # (veya doğrudan)
 pip install Pillow
 ```
 
-ffmpeg/ffprobe kurulumu:
+### 3. ffmpeg/ffprobe kur
 
 ```bash
 # Windows (winget)
@@ -96,7 +107,7 @@ python blerp_to_mp4.py --user blerpusername -o klasor/
 python blerp_to_mp4.py --user blerpusername --overwrite
 ```
 
-Toplu modda dosyalar `<başlık>_<biteId>.mp4` olarak adlandırılır ve var olanlar atlanır (resume). İşlem sonunda `<n> indirildi, <n> atlandı, <n> hata` özeti basılır.
+Toplu modda dosyalar `<başlık>_<biteId>.mp4` olarak adlandırılır ve var olanlar atlanır (resume). İşlem sonunda `Done: <n> downloaded, <n> skipped, <n> failed -> <çıktı-yolu>` özeti basılır (program çıktısı İngilizcedir).
 
 > **Not:** Hem `--user` (veya bir `/u/` profil URL'si) hem de bir soundbite URL'si birlikte verilirse toplu mod kazanır; tek-blerp URL'si yok sayılır.
 
@@ -108,20 +119,33 @@ Yalnızca Python standart kütüphanesini kullanan (ek bağımlılık yok) basit
 python blerp_gui.py
 ```
 
-Tek kutuya bir soundbite URL'si **ya da** kullanıcı adı / profil URL'si yapıştırın (mod otomatik algılanır), isterseniz bir çıktı klasörü seçin ve **İndir**'e basın. Bir ilerleme çubuğu ve canlı log gösterilir; uzun toplu indirmeler çalışırken **Durdur** ile kesilebilir.
+Tek kutuya bir soundbite URL'si **ya da** kullanıcı adı / profil URL'si yapıştırın (mod otomatik algılanır), isterseniz bir çıktı klasörü ve/veya (PATH'te değilse) bir FFmpeg klasörü seçin, sonra **Download**'a basın. Bir ilerleme çubuğu ve canlı log gösterilir; uzun toplu indirmeler çalışırken **Stop** ile kesilebilir.
+
+İki onay kutusu panoyu izlemeyi etkinleştirir: **"Watch clipboard for Blerp links"** pencere açıkken kopyalanan tek bir soundbite linkini algılar; **"Auto-download (skip confirmation)"** bunun hemen mi yoksa bir onay sorusundan sonra mı indirileceğini belirler. Bu alanların ve onay kutularının hepsi (pencere boyutuyla birlikte) bir sonraki açılış için hatırlanır — bkz. [Ayarlar](#ayarlar).
 
 ## Seçenekler
 
 | Argüman | Açıklama |
 |---|---|
 | `target` (pozisyonel, opsiyonel) | Soundbite URL'si **VEYA** `/u/<kullanıcı>` profil URL'si |
-| `--user KULLANICI` | Bir kullanıcının TÜM blerp'lerini indir (toplu mod) |
+| `--user USERNAME` | Bir kullanıcının TÜM blerp'lerini indir (toplu mod) |
 | `-o`, `--out` | Tek mod: çıktı dosyası \| Toplu mod: çıktı klasörü |
 | `--limit N` | Toplu modda yalnızca ilk N blerp (`bites[:N]`) |
 | `--delay SN` | Toplu modda blerp'ler arası bekleme (saniye, varsayılan: `0.3`) |
-| `--overwrite` | Toplu modda var olan dosyaların üzerine yaz (varsayılan: atla) |
+| `--overwrite` / `--no-overwrite` | Toplu modda üzerine yaz / kaydedilmiş varsayılanı geçersiz kılıp atla |
 
-> `--limit`, `--delay` ve `--overwrite` yalnızca toplu modda etkilidir. `-o/--out`, tek modda dosya, toplu modda klasör olarak yorumlanır.
+> `--limit`, `--delay` ve `--overwrite` yalnızca toplu modda etkilidir. `-o/--out`, tek modda dosya, toplu modda klasör olarak yorumlanır. `-o`, `--limit`, `--delay` ve `--overwrite`'ın hepsi varsa [Ayarlar](#ayarlar)'da kayıtlı değeri, yoksa yukarıdaki varsayılanları kullanır.
+
+## Ayarlar
+
+Çıktı klasörü, üzerine yazma, toplu limit/gecikme, özel bir FFmpeg konumu, pencere boyutu ve pano izleme seçenekleri küçük bir INI dosyasında saklanır (Python'un standart kütüphanesindeki `configparser` ile — birkaç anahtar-değer ayarı için bir veritabanı gereğinden fazla olurdu):
+
+- Windows: `%APPDATA%\BlerpDownloader\settings.ini`
+- macOS/Linux: `~/.config/blerp-downloader/settings.ini`
+
+**GUI**, açılışta bu dosyayı okuyup alanları doldurur; bir indirme başladığında veya pencere kapatıldığında geri yazar — yani en son ne kullandıysanız yeni varsayılan o olur. **CLI** aynı dosyayı argüman varsayılanları (`-o`, `--limit`, `--delay`, `--overwrite`) için okur ama asla yazmaz; böylece tekrarlanan/scriptlenen CLI çağrıları GUI'nin son kaydettiğinden bağımsız olarak deterministik kalır. Eksik ya da bozuk bir ayar dosyası hiçbir zaman uygulamayı çökertmez — yok sayılır ve yerleşik varsayılanlar kullanılır.
+
+Dosya düz metindir; uygulama kapalıyken elle düzenlemek güvenlidir (ör. bozuk bir `ffmpeg_dir` yolunu düzeltmek için).
 
 ## Nasıl Çalışır
 
@@ -135,7 +159,7 @@ Tek kutuya bir soundbite URL'si **ya da** kullanıcı adı / profil URL'si yapı
 
 ### Toplu listeleme (GraphQL)
 
-- Önce `userByUsername` sorgusuyla kullanıcının `_id`'si bulunur (kullanıcı yoksa "Kullanıcı bulunamadı" hatası).
+- Önce `userByUsername` sorgusuyla kullanıcının `_id`'si bulunur (kullanıcı yoksa `User not found: <username>` hatası).
 - `soundEmotesFeaturedContentPagination` sorgusu, kimlik doğrulama gerektirmeyen açık GraphQL endpoint'i (`https://api.blerp.com/graphql`) üzerinden sayfa sayfa çağrılır.
 - Liste yanıtı her blerp'in ses (`audio.mp3.url`) ve görsel (`image.original.url`) URL'lerini de içerdiği için her blerp için ayrıca sayfa indirmeye gerek kalmaz.
 - Blerp'ler **sırayla** (tek tek, paralel değil) işlenir; her blerp `process_bite` ortak çekirdeğinden geçer. Toplu mod, tek modun bastığı `[2/5]`...`[5/5]` alt adımlarını ekrana basmaz.
@@ -152,7 +176,7 @@ Tek kutuya bir soundbite URL'si **ya da** kullanıcı adı / profil URL'si yapı
   - Sayfalama, `hasNextPage` false olunca (ya da öğe kalmayınca) durur; `hasNextPage` hiç kapanmazsa `max_pages=1000` üst sınırı sonsuz döngüyü engeller.
 - **Dosya adlandırma (toplu):** `<başlık>_<biteId>.mp4`. blerp ID'sinin ada eklenmesi adları benzersiz **ve** çalıştırmalar arası kararlı kılar (aynı blerp -> aynı ad); bu da resume/atla davranışının temelidir.
 - **Geçici dosyalar:** WebP, MP3, PNG kareler, ara animasyon ve concat listesi otomatik temizlenen bir `TemporaryDirectory` içinde tutulur; yalnızca nihai MP4 kalıcıdır.
-- **Konsol/kodlama:** stdout/stderr UTF-8'e yeniden yapılandırılır; bu yüzden Windows konsolu (cp1252) Türkçe karakterlerde ve `•`, `✓`, `✗` gibi simgelerde çökmez.
+- **Konsol/kodlama:** stdout/stderr UTF-8'e yeniden yapılandırılır; bu yüzden Windows konsolu (cp1252) `•`, `✓`, `✗` gibi simgelerde çökmez.
 
 ## Paketleme (.exe & installer)
 
@@ -181,13 +205,13 @@ Kurulum dosyası (`dist/installer/BlerpDownloader-Setup-1.0.0.exe`) her iki exe'
 
 ## Sorun Giderme
 
-- **`HATA: Pillow gerekli.`** — `pip install Pillow` çalıştırın.
-- **FFmpeg bulunamadı** — uygulama bunu algılar ve çökmek yerine sizi yönlendirir (CLI çözümü yazdırır; GUI winget ile kurmayı önerir). En hızlısı: `winget install Gyan.FFmpeg`, sonra **uygulamayı yeniden başlatın**. Doğrulama: `ffmpeg -version` / `ffprobe -version`. Alternatif: <https://ffmpeg.org/download.html> adresinden indirip `PATH`'e ekleyin ya da `choco install ffmpeg` / `scoop install ffmpeg`.
+- **`ERROR: Pillow is required.`** — `pip install Pillow` çalıştırın.
+- **FFmpeg bulunamadı** — uygulama bunu algılar ve çökmek yerine sizi yönlendirir (CLI çözümü yazdırır; GUI winget ile kurmayı önerir). En hızlısı: `winget install Gyan.FFmpeg`, sonra **uygulamayı yeniden başlatın**. Doğrulama: `ffmpeg -version` / `ffprobe -version`. Alternatif: <https://ffmpeg.org/download.html> adresinden indirip `PATH`'e ekleyin ya da `choco install ffmpeg` / `scoop install ffmpeg` — ya da PATH'e eklemek istemediğiniz bir yere kurduysanız, GUI'deki "FFmpeg folder" alanını (veya [Ayarlar](#ayarlar)'daki `ffmpeg_dir`'i) o klasöre işaret edin.
 - **`HTTP 403` / indirilemedi** — site/CDN varsayılan urllib User-Agent'ını engeller; betik zaten tarayıcı UA'sı gönderir. Hata sürerse ağ/erişim sorununu kontrol edin. Betikte ağ yeniden deneme/backoff yoktur; tek modda hata programı bitirir, toplu modda yalnızca o blerp atlanır.
-- **`Sayfada __NEXT_DATA__ bulunamadı (site yapısı değişmiş olabilir).`** — Tek-mod scraping'i sitenin `__NEXT_DATA__`/Apollo yapısına bağlıdır; site yapısı değişmiş olabilir.
-- **`Kullanıcı bulunamadı: <ad>`** — Toplu modda kullanıcı adı hatalı ya da kullanıcı yok.
-- **`Bu blerp için ses/görsel URL'si bulunamadı.`** — Beklenen `audio.mp3.url`/`image.original.url` alanları bulunamadı. Toplu modda, medyası eksik öğeler sessizce listeden düşürülür.
-- **`İptal edildi.`** — İşlem Ctrl+C ile durduruldu.
+- **`__NEXT_DATA__ not found on the page (the site structure may have changed).`** — Tek-mod scraping'i sitenin `__NEXT_DATA__`/Apollo yapısına bağlıdır; site yapısı değişmiş olabilir.
+- **`User not found: <username>`** — Toplu modda kullanıcı adı hatalı ya da kullanıcı yok.
+- **`No audio/image URL found for this blerp.`** — Beklenen `audio.mp3.url`/`image.original.url` alanları bulunamadı. Toplu modda, medyası eksik öğeler sessizce listeden düşürülür.
+- **`Cancelled.`** — İşlem Ctrl+C ile durduruldu.
 - **Statik / WebP olmayan görsel:** ANMF süreleri okunamazsa Pillow + 40ms varsayılan süre ile tek/çok kare yine de işlenir.
 
 ## Yasal Uyarı
