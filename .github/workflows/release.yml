@@ -94,10 +94,26 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          $ErrorActionPreference = 'Stop'
+          $tag = '${{ steps.ver.outputs.tag }}'
+          $installer = "dist\installer\BlerpDownloader-Setup-${{ steps.ver.outputs.version }}.exe"
+          $sums = "dist\installer\SHA256SUMS.txt"
+          foreach ($f in @($installer, $sums)) {
+            if (-not (Test-Path $f)) { throw "Missing asset: $f" }
+          }
+
+          # Built as an array rather than one command line with a conditional
+          # variable: an empty '' would otherwise be passed through as an empty
+          # positional argument (gh would read it as an asset path) under
+          # PowerShell's Standard native-argument passing.
           # Only the installer is uploaded: the updater refuses to launch a bare
           # .exe asset, and shipping loose exes creates installed-vs-standalone drift.
-          $pre = if ('${{ steps.ver.outputs.tag }}' -like '*-*') { '--prerelease' } else { '' }
-          gh release create '${{ steps.ver.outputs.tag }}' `
-            --title '${{ steps.ver.outputs.tag }}' --generate-notes $pre `
-            "dist\installer\BlerpDownloader-Setup-${{ steps.ver.outputs.version }}.exe" `
-            "dist\installer\SHA256SUMS.txt"
+          $ghArgs = @('release', 'create', $tag, '--title', $tag, '--generate-notes')
+          if ($tag -like '*-*') { $ghArgs += '--prerelease' }
+          $ghArgs += @($installer, $sums)
+
+          Write-Host "gh $($ghArgs -join ' ')"
+          & gh @ghArgs
+          if ($LASTEXITCODE -ne 0) {
+            throw "gh release create failed with exit code $LASTEXITCODE"
+          }
