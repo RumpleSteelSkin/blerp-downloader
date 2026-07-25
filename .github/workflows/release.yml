@@ -27,9 +27,11 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      # v7 of both: the v4/v5 lines target Node.js 20, which is deprecated and
+      # already being force-run on Node 24 by the runner.
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
