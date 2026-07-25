@@ -84,13 +84,77 @@ Filename: "{app}\{#MyAppExe}"; Description: "{cm:LaunchProgram,{#MyAppName}}"; F
 Filename: "{app}\{#MyAppExe}"; Flags: nowait; Check: LaunchAfterUpdate
 
 [Code]
-{ If ffmpeg is missing, installs it via winget during setup (the app's one external dependency). }
+
+const
+  SYNCHRONIZE = $00100000;
+  GENERIC_WRITE = $40000000;
+  OPEN_EXISTING = 3;
+  INVALID_HANDLE_VALUE = $FFFFFFFF;
+
+function OpenProcess(dwDesiredAccess: LongWord; bInheritHandle: Boolean;
+  dwProcessId: LongWord): LongWord;
+  external 'OpenProcess@kernel32.dll stdcall';
+function WaitForSingleObject(hHandle, dwMilliseconds: LongWord): LongWord;
+  external 'WaitForSingleObject@kernel32.dll stdcall';
+function CreateFileW(lpFileName: String; dwDesiredAccess, dwShareMode,
+  lpSecurityAttributes, dwCreationDisposition, dwFlagsAndAttributes,
+  hTemplateFile: LongWord): LongWord;
+  external 'CreateFileW@kernel32.dll stdcall';
+function CloseHandle(hObject: LongWord): Boolean;
+  external 'CloseHandle@kernel32.dll stdcall';
 
 function LaunchAfterUpdate: Boolean;
 begin
   { Set by the in-app updater: BlerpDownloader-Setup-x.y.z.exe /SILENT ... /UPDATED=1 }
   Result := ExpandConstant('{param:UPDATED|0}') = '1';
 end;
+
+procedure WaitForUpdatingApp;
+var
+  pid, handle, i: LongWord;
+  target: String;
+begin
+  { An in-app update starts Setup from the app that is being replaced, so that
+    app is still shutting down when Setup begins. Restart Manager tries to close
+    it, and if it doesn't manage it in time Setup aborts and rolls back. Waiting
+    here means there is nothing left for Restart Manager to close.
+
+    Two mechanisms, because the app that launches this installer is the OLD
+    version: releases before this one don't pass /WAITPID, so the file-lock wait
+    is what actually rescues them. }
+
+  pid := StrToIntDef(ExpandConstant('{param:WAITPID|0}'), 0);
+  if pid > 0 then begin
+    handle := OpenProcess(SYNCHRONIZE, False, pid);
+    if handle <> 0 then begin
+      WaitForSingleObject(handle, 20000);   { bounded: never hang Setup }
+      CloseHandle(handle);
+    end;
+  end;
+
+  { Then wait until the file we must overwrite is actually writable. This works
+    no matter which version launched us, and outlives process teardown. }
+  target := ExpandConstant('{app}\{#MyAppExe}');
+  if not FileExists(target) then
+    Exit;                                   { fresh install, nothing to wait for }
+  for i := 1 to 40 do begin                 { up to ~20s }
+    handle := CreateFileW(target, GENERIC_WRITE, 0, 0, OPEN_EXISTING, 0, 0);
+    if handle <> INVALID_HANDLE_VALUE then begin
+      CloseHandle(handle);
+      Exit;
+    end;
+    Sleep(500);
+  end;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  { Runs before Setup's install step, which is where Restart Manager acts. }
+  WaitForUpdatingApp;
+  Result := '';
+end;
+
+{ If ffmpeg is missing, installs it via winget during setup (the app's one external dependency). }
 
 function CmdSucceeds(const Cmd: string): Boolean;
 var

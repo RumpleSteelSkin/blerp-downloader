@@ -142,5 +142,32 @@ class TestCheckForUpdateAgainstFixtures(unittest.TestCase):
         self.assertEqual(st.state, UpdateState.ERROR)
 
 
+class TestLaunchInstallerFlags(unittest.TestCase):
+    """The switches matter: the wrong set silently rolls the update back."""
+
+    def _args(self) -> list:
+        import subprocess
+        from unittest import mock
+        from blerp_downloader import updater
+        with mock.patch.object(subprocess, "Popen") as popen:
+            updater.launch_installer(Path("C:/tmp/BlerpDownloader-Setup-9.9.9.exe"))
+        return popen.call_args[0][0]
+
+    def test_passes_our_pid_so_setup_waits_for_us(self):
+        import os
+        self.assertIn(f"/WAITPID={os.getpid()}", self._args())
+
+    def test_does_not_suppress_message_boxes(self):
+        """/SUPPRESSMSGBOXES answers every prompt with its default, and the
+        default for 'could not close the application' is Abort - which turns a
+        recoverable hiccup into a silent rollback."""
+        self.assertNotIn("/SUPPRESSMSGBOXES", self._args())
+
+    def test_runs_silently_and_logs(self):
+        args = self._args()
+        for flag in ("/SILENT", "/LOG", "/UPDATED=1", "/NORESTARTAPPLICATIONS"):
+            self.assertIn(flag, args, flag)
+
+
 if __name__ == "__main__":
     unittest.main()

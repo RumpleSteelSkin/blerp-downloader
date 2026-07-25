@@ -335,15 +335,24 @@ def download_installer(info: UpdateInfo, *, current_version: str = "",
 def launch_installer(path: Path) -> None:
     """Starts the installer detached and returns immediately; the caller then exits.
 
-    /CLOSEAPPLICATIONS lets Restart Manager close this app cleanly if it is still
-    holding the exe, and /NORESTARTAPPLICATIONS stops it from also relaunching
-    (installer.iss has a /UPDATED=1 [Run] entry that does that deterministically).
+    /WAITPID tells the installer to wait for this process before touching any
+    files. Without it Setup reaches its install step while we are still shutting
+    down, Restart Manager fails to close us, and Setup rolls the whole thing back.
+
+    /CLOSEAPPLICATIONS still covers a second copy the user has open, and
+    /NORESTARTAPPLICATIONS stops Restart Manager relaunching it (installer.iss
+    has a /UPDATED=1 [Run] entry that does that deterministically instead).
+
+    Deliberately no /SUPPRESSMSGBOXES: it answers every prompt with its default,
+    and the default for "couldn't close the application" is Abort - which turns a
+    recoverable hiccup into a silent rollback with nothing shown to the user.
     """
     flags = (getattr(subprocess, "DETACHED_PROCESS", 0)
              | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0))
     subprocess.Popen(
-        [str(path), "/SILENT", "/SUPPRESSMSGBOXES", "/NOCANCEL", "/NORESTART",
-         "/CLOSEAPPLICATIONS", "/NORESTARTAPPLICATIONS", "/UPDATED=1", "/LOG"],
+        [str(path), "/SILENT", "/NOCANCEL", "/NORESTART",
+         "/CLOSEAPPLICATIONS", "/NORESTARTAPPLICATIONS",
+         f"/WAITPID={os.getpid()}", "/UPDATED=1", "/LOG"],
         creationflags=flags, close_fds=True, cwd=str(path.parent),
     )
 
