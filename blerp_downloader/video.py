@@ -6,7 +6,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from .ffmpeg_utils import NO_WINDOW_FLAGS, ffmpeg_path
+from .ffmpeg_utils import ffmpeg_path, hidden_process_kwargs
 
 
 def build_animation_video(frames: list[Path], durations_ms: list[int], out_path: Path) -> float:
@@ -32,7 +32,7 @@ def build_animation_video(frames: list[Path], durations_ms: list[int], out_path:
         "-movflags", "+faststart",
         str(out_path),
     ]
-    subprocess.run(cmd, check=True, creationflags=NO_WINDOW_FLAGS)
+    subprocess.run(cmd, check=True, **hidden_process_kwargs())
     list_file.unlink(missing_ok=True)
     return sum(durations_ms) / 1000.0
 
@@ -80,4 +80,4 @@ def mux(anim_video: Path, audio_path: Path, plan: SyncPlan, out_path: Path) -> N
         "-movflags", "+faststart",
         str(out_path),
     ]
-    subprocess.run(cmd, check=True, creationflags=NO_WINDOW_FLAGS)
+    subprocess.run(cmd, check=True, **hidden_process_kwargs())

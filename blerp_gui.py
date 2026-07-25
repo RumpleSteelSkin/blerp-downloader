@@ -253,8 +253,7 @@ class BlerpGUI:
             subprocess.run(
                 ["winget", "install", "--id", "Gyan.FFmpeg", "-e",
                  "--accept-package-agreements", "--accept-source-agreements"],
-                check=False,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                check=False, **core.hidden_process_kwargs(),
             )
             if core.has_ffmpeg():
                 self.q.put(("done", "✓ FFmpeg installed. You can click Download now."))
