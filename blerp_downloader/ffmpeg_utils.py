@@ -114,14 +114,23 @@ def has_ffmpeg() -> bool:
     return shutil.which(ffmpeg_path()) is not None and shutil.which(ffprobe_path()) is not None
 
 
+PROBE_TIMEOUT = 60
+
+
 def probe_duration(media_path: Path) -> float | None:
-    """Measures a media file's true duration (s) with ffprobe; returns None on failure."""
+    """Measures a media file's true duration (s) with ffprobe; returns None on failure.
+
+    The caller falls back to site metadata, so every failure mode here is
+    non-fatal - including ffprobe being absent or wedging on a corrupt file,
+    which without the timeout would park the worker thread indefinitely.
+    """
     try:
         out = subprocess.run(
             [ffprobe_path(), "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", str(media_path)],
-            capture_output=True, text=True, check=True, **hidden_process_kwargs(),
+            capture_output=True, text=True, check=True, timeout=PROBE_TIMEOUT,
+            **hidden_process_kwargs(),
         ).stdout.strip()
         return float(out)
-    except (subprocess.CalledProcessError, ValueError):
+    except (subprocess.SubprocessError, OSError, ValueError):
         return None

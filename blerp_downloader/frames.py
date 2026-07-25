@@ -6,6 +6,8 @@ import struct
 import sys
 from pathlib import Path
 
+from .errors import BlerpError
+
 try:
     from PIL import Image
 except ImportError:
@@ -40,20 +42,47 @@ def extract_frames(webp_path: Path, out_dir: Path) -> tuple[list[Path], list[int
     raw = webp_path.read_bytes()
     durations = parse_anmf_durations(raw)
 
-    im = Image.open(webp_path)
-    n = getattr(im, "n_frames", 1)
     out_dir.mkdir(parents=True, exist_ok=True)
-
     frames: list[Path] = []
-    for i in range(n):
-        im.seek(i)
-        fp = out_dir / f"frame_{i:05d}.png"
-        im.convert("RGBA").save(fp)
-        frames.append(fp)
+    # Closed explicitly: on an exception the traceback keeps this frame alive, so
+    # a plain Image.open would still hold the file when the caller's
+    # TemporaryDirectory is torn down. On Windows that raises a sharing violation
+    # which replaces the real decode error and leaves the temp directory behind.
+    try:
+        with Image.open(webp_path) as im:
+            n = getattr(im, "n_frames", 1)
+            # Pillow reports real per-frame delays for GIF/APNG; only WebP needs
+            # the raw ANMF walk. Without this a GIF played at a flat 25fps.
+            if not durations and n > 1:
+                durations = _pillow_durations(im, n)
+            for i in range(n):
+                im.seek(i)
+                fp = out_dir / f"frame_{i:05d}.png"
+                im.convert("RGBA").save(fp)
+                frames.append(fp)
+    except (OSError, ValueError, EOFError) as e:
+        raise BlerpError(f"The image could not be read: {e}")
+
+    if not frames:
+        raise BlerpError("The image contains no frames.")
 
     # Align the duration list with the frame count (missing values default to 40ms ~25fps).
+    n = len(frames)
     if len(durations) != n:
         durations = [d if d > 0 else 40 for d in durations]
         durations += [40] * (n - len(durations))
     durations = [d if d > 0 else 40 for d in durations[:n]]
     return frames, durations
+
+
+def _pillow_durations(im, n: int) -> list[int]:
+    """Per-frame delays as Pillow reports them, for formats other than WebP."""
+    out: list[int] = []
+    try:
+        for i in range(n):
+            im.seek(i)
+            out.append(int(im.info.get("duration") or 0))
+        im.seek(0)
+    except (OSError, ValueError, EOFError):
+        return []
+    return out

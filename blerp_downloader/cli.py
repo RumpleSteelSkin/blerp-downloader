@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -39,14 +38,24 @@ def run_bulk(username: str, out_dir: Path | None, *, limit: int | None,
              delay: float, overwrite: bool) -> None:
     """Downloads all of a user's blerps in sequence (skipping ones that already exist)."""
     print(f"Scanning user: {username}")
-    bites = list_user_bites(username)
+
+    def scanning(pages: int, found: int) -> None:
+        # A large profile is many sequential requests; \r keeps it to one line.
+        print(f"\r  {found} blerps found ({pages} pages)...", end="", flush=True)
+
+    bites = list_user_bites(username, on_progress=scanning)
+    print()
+    dropped = getattr(bites, "dropped", 0)
     if limit:
         bites = bites[:limit]
 
     out_dir = out_dir or Path(sanitize(username))
     out_dir.mkdir(parents=True, exist_ok=True)
     total = len(bites)
-    print(f"{total} blerps found -> {out_dir}/\n")
+    print(f"{total} blerps found -> {out_dir}/")
+    if dropped:
+        print(f"  ({dropped} skipped: no audio or image on the server)")
+    print()
 
     ok = skip = fail = 0
     for i, media in enumerate(bites, 1):
@@ -62,7 +71,12 @@ def run_bulk(username: str, out_dir: Path | None, *, limit: int | None,
             process_bite(media, out_path)
             ok += 1
             print(f"{tag} ✓ {out_path.name}")
-        except (BlerpError, subprocess.CalledProcessError, OSError) as e:
+        except KeyboardInterrupt:
+            raise
+        except Exception as e:
+            # Deliberately broad. A closed tuple let IncompleteRead, IndexError,
+            # KeyError and JSONDecodeError escape and abandon every remaining
+            # bite; one bad blerp should cost one blerp.
             fail += 1
             print(f"{tag} ✗ ERROR ({media.title[:30]}): {e}")
         time.sleep(delay)
@@ -114,3 +128,7 @@ def main() -> None:
         sys.exit(f"ERROR: {e}")
     except KeyboardInterrupt:
         sys.exit("\nCancelled.")
+    except OSError as e:
+        # Unwritable output directory, full disk, unmapped network drive: a
+        # traceback here tells the user nothing they can act on.
+        sys.exit(f"ERROR: {e}")

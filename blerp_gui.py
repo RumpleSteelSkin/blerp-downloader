@@ -579,8 +579,20 @@ class BlerpGUI:
 
     def _run_bulk(self, username: str, out_text: str, limit: int | None,
                   overwrite: bool, delay: float) -> None:
-        self.q.put(("log", f"Scanning user: {username}"))
-        bites = core.list_user_bites(username)
+        self.q.put(("log", f"Scanning user: {username}…"))
+        self.q.put(("status", "Scanning profile…"))
+
+        # Scanning a large profile is many sequential requests; without this the
+        # window shows one line and an empty bar for minutes and looks hung.
+        def scanning(pages: int, found: int) -> None:
+            self.q.put(("status", f"Scanning profile… {found} blerps so far "
+                                  f"({pages} page{'s' if pages != 1 else ''})"))
+
+        bites = core.list_user_bites(username, on_progress=scanning, cancel=self.cancel)
+        if self.cancel.is_set():
+            self.q.put(("done", "⏹ Stopped while scanning."))
+            return
+        dropped = getattr(bites, "dropped", 0)
         if limit:
             bites = bites[:limit]
         out_dir = Path(out_text) if out_text else Path(core.sanitize(username))
@@ -588,6 +600,10 @@ class BlerpGUI:
         total = len(bites)
         self.q.put(("total", total))
         self.q.put(("log", f"{total} blerps found → {out_dir}"))
+        if dropped:
+            # Otherwise the run reports a smaller profile than the website shows,
+            # with nothing to explain the difference.
+            self.q.put(("log", f"  ({dropped} skipped: no audio or image on the server)"))
 
         ok = skip = fail = 0
         for i, m in enumerate(bites, 1):

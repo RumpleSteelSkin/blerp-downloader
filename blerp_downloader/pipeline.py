@@ -13,8 +13,34 @@ from .scraping import BiteMedia
 from .video import build_animation_video, mux, resolve_sync
 
 
+# Reserved on Windows with or without an extension: "NUL.mp4" is still the null
+# device, which swallows ffmpeg's output while letting it exit 0.
+_RESERVED = {"con", "prn", "aux", "nul",
+             *(f"com{i}" for i in range(1, 10)),
+             *(f"lpt{i}" for i in range(1, 10))}
+
+# Leaves room for the "_<24-hex ObjectId>.mp4" that bulk mode appends, inside the
+# 255-character limit on a single path component.
+MAX_TITLE_CHARS = 200
+
+
 def sanitize(name: str) -> str:
-    return re.sub(r'[\\/:*?"<>|]+', "_", name).strip() or "blerp"
+    """Turns a blerp title into a filename component that Windows will accept."""
+    name = re.sub(r'[\\/:*?"<>|]+', "_", name or "")
+    # Control characters are rejected by the filesystem and would otherwise reach
+    # ffmpeg as a literal newline or tab inside the output path.
+    name = re.sub(r"[\x00-\x1f\x7f]+", " ", name)
+    name = re.sub(r"\s+", " ", name).strip()
+    # A trailing dot or space is silently dropped by Windows, which would make
+    # the name we check for existence differ from the one on disk.
+    name = name.rstrip(". ").strip()
+    if not name:
+        return "blerp"
+    if len(name) > MAX_TITLE_CHARS:
+        name = name[:MAX_TITLE_CHARS].rstrip(". ").strip() or "blerp"
+    if name.split(".")[0].lower() in _RESERVED:
+        name = "_" + name
+    return name
 
 
 def process_bite(media: BiteMedia, out_path: Path, *, verbose: bool = False) -> None:
