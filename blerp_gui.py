@@ -26,10 +26,16 @@ import time
 import tkinter as tk
 import webbrowser
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
-from tkinter.scrolledtext import ScrolledText
+from tkinter import filedialog, font, messagebox, ttk
 
 import blerp_downloader as core
+from blerp_downloader import theme as theming
+from blerp_downloader.settings import MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH
+
+# The Windows theme can change while the app is open, and Tk never sees the
+# WM_SETTINGCHANGE that announces it. _poll already ticks every 100ms, so the
+# registry is re-read every this-many ticks instead of on a second timer.
+_THEME_CHECK_TICKS = 20
 
 
 def resource_path(rel: str) -> Path:
@@ -89,92 +95,203 @@ class BlerpGUI:
         except tk.TclError:
             self._last_clipboard = ""
 
-        root.title(f"{core.APP_NAME}  ·  {core.SIGNATURE}")
-        root.minsize(580, 460)
-        root.geometry(f"{max(self.settings.window_width, 580)}x"
-                      f"{max(self.settings.window_height, 460)}")
+        root.title(core.APP_NAME)
         try:  # window icon (bundled or from source)
             root.iconbitmap(str(resource_path("assets/icon.ico")))
         except Exception:
             pass  # fine if there's no icon
         root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        self._mode = theming.resolve_mode(self.settings.theme)
+        self._plain = theming.high_contrast_active()
+        self.palette = (theming.palette_for(self._mode) if self._plain
+                        else theming.apply_theme(root, self._mode))
+        self._tick = 0
+
         self._build()
+        self._apply_geometry()
         try:
             core.cleanup_old_downloads()
         except Exception:
             pass  # stale-file cleanup must never block startup
         self.root.after(100, self._poll)
 
+    def _apply_geometry(self) -> None:
+        """Sizes the window from the built layout, so the minimum follows the
+        actual content rather than a hardcoded guess."""
+        # update_idletasks, never update(): update() re-enters the event loop,
+        # and a queued close would run _on_close against half-built widgets.
+        self.root.update_idletasks()
+        min_w = min(self.root.winfo_reqwidth(), self.root.winfo_screenwidth() - 80)
+        min_h = min(self.root.winfo_reqheight(), self.root.winfo_screenheight() - 80)
+        min_w, min_h = max(min_w, MIN_WINDOW_WIDTH), max(min_h, MIN_WINDOW_HEIGHT)
+        self.root.minsize(min_w, min_h)
+        self.root.geometry(f"{max(self.settings.window_width, min_w)}x"
+                           f"{max(self.settings.window_height, min_h)}")
+
     # ------------------------------------------------------------------ #
     #  UI construction
     # ------------------------------------------------------------------ #
     def _build(self) -> None:
-        frm = ttk.Frame(self.root, padding=10)
+        self._tune_fonts()
+        frm = ttk.Frame(self.root, padding=16)
         frm.pack(fill="both", expand=True)
-        frm.columnconfigure(1, weight=1)
+        frm.columnconfigure(0, weight=1)
 
-        ttk.Label(frm, text="Soundbite URL  or  username / profile URL:") \
-            .grid(row=0, column=0, columnspan=3, sticky="w")
+        row = self._build_header(frm, 0)
+        row = self._build_source(frm, row)
+        row = self._build_destination(frm, row)
+        row = self._build_options(frm, row)
+        row = self._build_actions(frm, row)
+        self._build_log(frm, row)
+
+    def _tune_fonts(self) -> None:
+        """Segoe UI where available; Tk's default is a decade out of date."""
+        try:
+            families = set(font.families())
+            if "Segoe UI" not in families:
+                return
+            for name in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont"):
+                try:
+                    font.nametofont(name).configure(family="Segoe UI", size=9)
+                except tk.TclError:
+                    pass
+        except tk.TclError:
+            pass
+
+    def _section(self, parent: ttk.Frame, row: int, text: str) -> int:
+        """A section heading plus its rule. Not ttk.LabelFrame: that draws a
+        raised 3D box and its label doesn't inherit the frame background."""
+        pad = (0 if row == 0 else 14, 6)
+        head = ttk.Frame(parent)
+        head.grid(row=row, column=0, sticky="ew", pady=pad)
+        head.columnconfigure(1, weight=1)
+        ttk.Label(head, text=text, style="Section.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Separator(head, orient="horizontal").grid(row=0, column=1, sticky="ew", padx=(10, 0))
+        return row + 1
+
+    def _build_header(self, frm: ttk.Frame, row: int) -> int:
+        bar = ttk.Frame(frm)
+        bar.grid(row=row, column=0, sticky="ew")
+        bar.columnconfigure(1, weight=1)
+        ttk.Label(bar, text=core.APP_NAME, style="Header.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(bar, text=f"v{core.__version__}", style="Muted.TLabel") \
+            .grid(row=0, column=2, sticky="e")
+        return row + 1
+
+    def _build_source(self, frm: ttk.Frame, row: int) -> int:
+        row = self._section(frm, row, "SOURCE")
         self.target = ttk.Entry(frm)
-        self.target.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(0, 8))
+        self.target.grid(row=row, column=0, sticky="ew")
+        ttk.Label(frm, text="A soundbite URL, or a username / profile URL for the whole profile",
+                  style="Muted.TLabel").grid(row=row + 1, column=0, sticky="w", pady=(4, 0))
+        return row + 2
 
-        ttk.Label(frm, text="Output (optional):").grid(row=2, column=0, sticky="w")
-        self.out = ttk.Entry(frm)
+    def _build_destination(self, frm: ttk.Frame, row: int) -> int:
+        row = self._section(frm, row, "DESTINATION")
+        grid = ttk.Frame(frm)
+        grid.grid(row=row, column=0, sticky="ew")
+        grid.columnconfigure(1, weight=1)
+
+        ttk.Label(grid, text="Output").grid(row=0, column=0, sticky="w", padx=(0, 10))
+        self.out = ttk.Entry(grid)
         self.out.insert(0, self.settings.output_dir)
-        self.out.grid(row=2, column=1, sticky="ew", padx=(6, 6))
-        ttk.Button(frm, text="Choose Folder…", command=self._pick_dir) \
-            .grid(row=2, column=2)
+        self.out.grid(row=0, column=1, sticky="ew")
+        ttk.Button(grid, text="Choose…", command=self._pick_dir) \
+            .grid(row=0, column=2, padx=(8, 0))
 
-        ttk.Label(frm, text="FFmpeg folder (optional, if not on PATH):") \
-            .grid(row=3, column=0, sticky="w")
-        self.ffmpeg_dir = ttk.Entry(frm)
+        ttk.Label(grid, text="FFmpeg").grid(row=1, column=0, sticky="w",
+                                            padx=(0, 10), pady=(8, 0))
+        self.ffmpeg_dir = ttk.Entry(grid)
         self.ffmpeg_dir.insert(0, self.settings.ffmpeg_dir)
-        self.ffmpeg_dir.grid(row=3, column=1, sticky="ew", padx=(6, 6))
-        ttk.Button(frm, text="Browse…", command=self._pick_ffmpeg_dir) \
-            .grid(row=3, column=2)
+        self.ffmpeg_dir.grid(row=1, column=1, sticky="ew", pady=(8, 0))
+        ttk.Button(grid, text="Browse…", command=self._pick_ffmpeg_dir) \
+            .grid(row=1, column=2, padx=(8, 0), pady=(8, 0))
+        ttk.Label(grid, text="Leave both empty to save next to the app and use FFmpeg from PATH",
+                  style="Muted.TLabel").grid(row=2, column=1, columnspan=2,
+                                             sticky="w", pady=(4, 0))
+        return row + 1
 
-        opt = ttk.Frame(frm)
-        opt.grid(row=4, column=0, columnspan=3, sticky="w", pady=6)
-        ttk.Label(opt, text="Limit (bulk):").pack(side="left")
-        self.limit = ttk.Entry(opt, width=6)
+    def _build_options(self, frm: ttk.Frame, row: int) -> int:
+        row = self._section(frm, row, "OPTIONS")
+        box = ttk.Frame(frm)
+        box.grid(row=row, column=0, sticky="ew")
+
+        line = ttk.Frame(box)
+        line.pack(fill="x")
+        ttk.Label(line, text="Limit (bulk)").pack(side="left", padx=(0, 8))
+        self.limit = ttk.Entry(line, width=6)
         if self.settings.bulk_limit is not None:
             self.limit.insert(0, str(self.settings.bulk_limit))
-        self.limit.pack(side="left", padx=(4, 14))
+        self.limit.pack(side="left", padx=(0, 18))
         self.overwrite = tk.BooleanVar(value=self.settings.overwrite)
-        ttk.Checkbutton(opt, text="Overwrite existing files", variable=self.overwrite) \
-            .pack(side="left")
+        ttk.Checkbutton(line, text="Overwrite existing files",
+                        variable=self.overwrite).pack(side="left")
 
-        cw = ttk.Frame(frm)
-        cw.grid(row=5, column=0, columnspan=3, sticky="w", pady=(0, 6))
         self.watch_clipboard = tk.BooleanVar(value=self.settings.clipboard_watch)
-        ttk.Checkbutton(cw, text="Watch clipboard for Blerp links",
-                        variable=self.watch_clipboard).pack(side="left")
+        ttk.Checkbutton(box, text="Watch clipboard for Blerp links",
+                        variable=self.watch_clipboard).pack(anchor="w", pady=(8, 0))
         self.auto_download = tk.BooleanVar(value=(self.settings.clipboard_mode == "auto"))
-        ttk.Checkbutton(cw, text="Auto-download (skip confirmation)",
-                        variable=self.auto_download).pack(side="left", padx=(14, 0))
+        ttk.Checkbutton(box, text="Auto-download (skip confirmation)",
+                        variable=self.auto_download).pack(anchor="w", padx=(18, 0))
+        return row + 1
+
+    def _build_actions(self, frm: ttk.Frame, row: int) -> int:
+        ttk.Separator(frm, orient="horizontal").grid(row=row, column=0, sticky="ew", pady=(16, 12))
 
         btns = ttk.Frame(frm)
-        btns.grid(row=6, column=0, columnspan=3, pady=4)
-        self.dl_btn = ttk.Button(btns, text="Download", command=self._start)
-        self.dl_btn.pack(side="left", padx=4)
+        btns.grid(row=row + 1, column=0, sticky="ew")
+        self.dl_btn = ttk.Button(btns, text="Download", command=self._start,
+                                 style="Accent.TButton")
+        self.dl_btn.pack(side="left")
         self.stop_btn = ttk.Button(btns, text="Stop", command=self.cancel.set,
                                    state="disabled")
-        self.stop_btn.pack(side="left", padx=4)
+        self.stop_btn.pack(side="left", padx=8)
         self.upd_btn = ttk.Button(btns, text="Check for Updates", command=self._check_updates)
-        self.upd_btn.pack(side="left", padx=4)
+        self.upd_btn.pack(side="right")
 
         self.prog = ttk.Progressbar(frm, mode="determinate")
-        self.prog.grid(row=7, column=0, columnspan=3, sticky="ew", pady=(6, 2))
-        self.status = ttk.Label(frm, text="Ready.")
-        self.status.grid(row=8, column=0, columnspan=3, sticky="w")
+        self.prog.grid(row=row + 2, column=0, sticky="ew", pady=(14, 6))
+        self.status = ttk.Label(frm, text="Ready.", style="Status.TLabel")
+        self.status.grid(row=row + 3, column=0, sticky="w")
+        return row + 4
 
-        self.log = ScrolledText(frm, height=12, state="disabled", wrap="word")
-        self.log.grid(row=9, column=0, columnspan=3, sticky="nsew", pady=(6, 0))
-        frm.rowconfigure(9, weight=1)
+    def _build_log(self, frm: ttk.Frame, row: int) -> None:
+        # tk.Text + ttk.Scrollbar rather than ScrolledText: that one is built
+        # from classic widgets, so it carries a grey frame and a scrollbar that
+        # ignores colours on Windows.
+        wrap = ttk.Frame(frm)
+        wrap.grid(row=row, column=0, sticky="nsew", pady=(10, 0))
+        wrap.columnconfigure(0, weight=1)
+        wrap.rowconfigure(0, weight=1)
+        frm.rowconfigure(row, weight=1)
 
-        # Signature + running version (so bug reports can name a version)
-        ttk.Label(frm, text=f"{core.SIGNATURE}  ·  v{core.__version__}", foreground="#888") \
-            .grid(row=10, column=0, columnspan=3, sticky="e", pady=(6, 0))
+        # width=1 deliberately: Text sizes itself in characters, and the default
+        # 80 would demand a ~644px window on its own.
+        self.log = tk.Text(wrap, height=10, width=1, state="disabled", wrap="word",
+                           bd=0, relief="flat", highlightthickness=1,
+                           padx=10, pady=8)
+        self.log.grid(row=0, column=0, sticky="nsew")
+        bar = ttk.Scrollbar(wrap, orient="vertical", command=self.log.yview)
+        bar.grid(row=0, column=1, sticky="ns")
+        self.log.configure(yscrollcommand=bar.set)
+
+        ttk.Label(frm, text=core.SIGNATURE, style="Muted.TLabel") \
+            .grid(row=row + 1, column=0, sticky="e", pady=(8, 0))
+        self._paint_log()
+
+    def _paint_log(self) -> None:
+        """Colours the classic Text widget; ttk styles don't reach it."""
+        p = self.palette
+        try:
+            self.log.configure(
+                background=p.log_bg, foreground=p.text, insertbackground=p.text,
+                selectbackground=p.select_bg, selectforeground=p.select_fg,
+                highlightbackground=p.border, highlightcolor=p.border,
+                font=("Consolas", 9),
+            )
+        except tk.TclError:
+            pass
 
     def _pick_dir(self) -> None:
         d = filedialog.askdirectory(title="Choose output folder")
@@ -199,14 +316,22 @@ class BlerpGUI:
             return None
 
     def _current_settings(self, limit: int | None) -> core.Settings:
+        # A withdrawn or not-yet-mapped window reports 1x1; keep the old size
+        # rather than persisting that.
+        w, h = self.root.winfo_width(), self.root.winfo_height()
+        if w < 100 or h < 100:
+            w, h = self.settings.window_width, self.settings.window_height
         return core.Settings(
             output_dir=self.out.get().strip(),
             overwrite=self.overwrite.get(),
             bulk_limit=limit,
-            bulk_delay=self.settings.bulk_delay,  # no GUI control for this; carry it through
+            # No GUI control for these two; carry them through or closing the
+            # window would silently reset a hand-edited value.
+            bulk_delay=self.settings.bulk_delay,
+            theme=self.settings.theme,
             ffmpeg_dir=self.ffmpeg_dir.get().strip(),
-            window_width=self.root.winfo_width(),
-            window_height=self.root.winfo_height(),
+            window_width=w,
+            window_height=h,
             clipboard_watch=self.watch_clipboard.get(),
             clipboard_mode="auto" if self.auto_download.get() else "ask",
         )
@@ -550,9 +675,29 @@ class BlerpGUI:
         elif kind == "update_downloaded":
             self._on_update_downloaded(*val)
 
+    def _follow_system_theme(self) -> None:
+        """Re-applies the theme if Windows switched between light and dark.
+
+        Tk can't see WM_SETTINGCHANGE, so this piggybacks on the existing poll
+        rather than adding a second timer. Only meaningful in "auto" mode.
+        """
+        if self._plain or self.settings.theme != "auto":
+            return
+        self._tick += 1
+        if self._tick % _THEME_CHECK_TICKS:
+            return
+        mode = theming.detect_windows_theme()
+        if mode == self._mode:
+            return
+        self._mode = mode
+        self.palette = theming.apply_theme(self.root, mode)
+        self._paint_log()   # the classic Text isn't covered by ttk styles
+        theming.set_titlebar_theme(self.root, mode == "dark")
+
     def _poll(self) -> None:
         if self._closing:
             return
+        self._follow_system_theme()
         self._check_clipboard()
         try:
             while not self._closing:   # _handle may hand off to the installer
@@ -566,7 +711,14 @@ class BlerpGUI:
 
 def main() -> None:
     root = tk.Tk()
-    BlerpGUI(root)
+    # Built while hidden, then shown: this both avoids a flash of the unstyled
+    # default window and gives the toplevel its frame handle, which the title
+    # bar call needs.
+    root.withdraw()
+    gui = BlerpGUI(root)
+    root.update_idletasks()
+    theming.set_titlebar_theme(root, gui._mode == "dark")
+    root.deiconify()
     root.mainloop()
 
 

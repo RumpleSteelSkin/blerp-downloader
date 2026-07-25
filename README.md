@@ -166,14 +166,25 @@ The workflow verifies the tag matches `__version__` (and fails loudly if you for
 
 ## Settings
 
-Output folder, overwrite, bulk limit/delay, a custom FFmpeg location, window size, and the clipboard-watch options are persisted (updates use a separate folder, see [Updating](#updating)) in a small INI file (via Python's stdlib `configparser` — a database would be overkill for a handful of key-value settings):
+Output folder, overwrite, bulk limit/delay, a custom FFmpeg location, window size, the theme, and the clipboard-watch options are persisted (updates use a separate folder, see [Updating](#updating)) in a small INI file (via Python's stdlib `configparser` — a database would be overkill for a handful of key-value settings):
 
 - Windows: `%APPDATA%\BlerpDownloader\settings.ini`
 - macOS/Linux: `~/.config/blerp-downloader/settings.ini`
 
 The **GUI** reads this file on startup to prefill its fields, and writes it back whenever a download starts or the window is closed — so whatever you last used becomes the new default. The **CLI** reads the same file for its argument defaults (`-o`, `--limit`, `--delay`, `--overwrite`) but never writes to it, so repeated/scripted CLI invocations stay deterministic regardless of what the GUI last saved. A missing or corrupted settings file is never fatal — it's ignored and the built-in defaults are used.
 
-The file is plain text and safe to edit by hand (e.g. to fix a bad `ffmpeg_dir` path) while the app is closed.
+The file is plain text and safe to edit by hand (e.g. to fix a bad `ffmpeg_dir` path) while the app is closed. A UTF-8 byte order mark is tolerated, so editors that add one won't break it.
+
+### Appearance
+
+The GUI follows the Windows light/dark setting and switches within a couple of seconds if you change it while the app is open, title bar included. To pin it instead, set `theme` in the settings file to `dark` or `light` (`auto` is the default):
+
+```ini
+[general]
+theme = dark
+```
+
+If Windows high contrast is on, the app leaves the system theme alone so your accessibility colours still apply. Note that the file-picker and message dialogs are provided by Windows and always follow the system theme, so in a pinned mode they may not match the window.
 
 ## How It Works
 

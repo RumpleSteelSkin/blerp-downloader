@@ -12,6 +12,12 @@ from pathlib import Path
 
 APP_DIR_NAME = "BlerpDownloader"
 
+# Smallest window the sectioned layout fits in; also the starting size.
+MIN_WINDOW_WIDTH = 620
+MIN_WINDOW_HEIGHT = 640
+
+THEMES = ("auto", "dark", "light")
+
 
 @dataclass
 class Settings:
@@ -20,10 +26,11 @@ class Settings:
     bulk_limit: int | None = None
     bulk_delay: float = 0.3
     ffmpeg_dir: str = ""              # empty = use PATH (today's behavior)
-    window_width: int = 580
-    window_height: int = 460
+    window_width: int = MIN_WINDOW_WIDTH
+    window_height: int = MIN_WINDOW_HEIGHT
     clipboard_watch: bool = False     # off by default: opt-in, not silently enabled
     clipboard_mode: str = "ask"       # "ask" or "auto"; only relevant if clipboard_watch
+    theme: str = "auto"               # "auto" follows the Windows light/dark setting
 
 
 def _settings_path() -> Path:
@@ -75,8 +82,11 @@ def load_settings() -> Settings:
 
     parser = configparser.ConfigParser()
     try:
-        parser.read(path, encoding="utf-8")
-    except configparser.Error:
+        # utf-8-sig, not utf-8: the file is meant to be hand-editable, and many
+        # Windows editors write a BOM. Under plain utf-8 that BOM lands in the
+        # section header and the whole file is silently discarded.
+        parser.read(path, encoding="utf-8-sig")
+    except (configparser.Error, UnicodeDecodeError):
         return settings
     if not parser.has_section("general"):
         return settings
@@ -91,6 +101,8 @@ def load_settings() -> Settings:
     settings.bulk_limit = _get_optional_int(g, "bulk_limit")
     settings.window_width = _get_int(g, "window_width", settings.window_width)
     settings.window_height = _get_int(g, "window_height", settings.window_height)
+    theme = g.get("theme", settings.theme).strip().lower()
+    settings.theme = theme if theme in THEMES else "auto"
     return settings
 
 
@@ -110,6 +122,7 @@ def save_settings(settings: Settings) -> None:
         "window_height": str(settings.window_height),
         "clipboard_watch": str(settings.clipboard_watch),
         "clipboard_mode": settings.clipboard_mode,
+        "theme": settings.theme,
     }
     with path.open("w", encoding="utf-8") as f:
         parser.write(f)

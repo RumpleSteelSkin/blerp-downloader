@@ -166,14 +166,25 @@ Workflow, tag ile `__version__` uyuşuyor mu diye doğrular (yükseltmeyi unuttu
 
 ## Ayarlar
 
-Çıktı klasörü, üzerine yazma, toplu limit/gecikme, özel bir FFmpeg konumu, pencere boyutu ve pano izleme seçenekleri küçük bir INI dosyasında saklanır (güncellemeler ayrı bir klasör kullanır, bkz. [Güncelleme](#güncelleme)) (Python'un standart kütüphanesindeki `configparser` ile — birkaç anahtar-değer ayarı için bir veritabanı gereğinden fazla olurdu):
+Çıktı klasörü, üzerine yazma, toplu limit/gecikme, özel bir FFmpeg konumu, pencere boyutu, tema ve pano izleme seçenekleri küçük bir INI dosyasında saklanır (güncellemeler ayrı bir klasör kullanır, bkz. [Güncelleme](#güncelleme)) (Python'un standart kütüphanesindeki `configparser` ile — birkaç anahtar-değer ayarı için bir veritabanı gereğinden fazla olurdu):
 
 - Windows: `%APPDATA%\BlerpDownloader\settings.ini`
 - macOS/Linux: `~/.config/blerp-downloader/settings.ini`
 
 **GUI**, açılışta bu dosyayı okuyup alanları doldurur; bir indirme başladığında veya pencere kapatıldığında geri yazar — yani en son ne kullandıysanız yeni varsayılan o olur. **CLI** aynı dosyayı argüman varsayılanları (`-o`, `--limit`, `--delay`, `--overwrite`) için okur ama asla yazmaz; böylece tekrarlanan/scriptlenen CLI çağrıları GUI'nin son kaydettiğinden bağımsız olarak deterministik kalır. Eksik ya da bozuk bir ayar dosyası hiçbir zaman uygulamayı çökertmez — yok sayılır ve yerleşik varsayılanlar kullanılır.
 
-Dosya düz metindir; uygulama kapalıyken elle düzenlemek güvenlidir (ör. bozuk bir `ffmpeg_dir` yolunu düzeltmek için).
+Dosya düz metindir; uygulama kapalıyken elle düzenlemek güvenlidir (ör. bozuk bir `ffmpeg_dir` yolunu düzeltmek için). UTF-8 BOM'u da kabul edilir; BOM ekleyen editörler dosyayı bozmaz.
+
+### Görünüm
+
+Arayüz Windows'un açık/koyu ayarını takip eder; uygulama açıkken ayarı değiştirirsen birkaç saniye içinde başlık çubuğu dahil kendini günceller. Sabitlemek istersen ayar dosyasındaki `theme` değerini `dark` ya da `light` yap (varsayılan `auto`):
+
+```ini
+[general]
+theme = dark
+```
+
+Windows yüksek kontrast modu açıksa uygulama sistem temasına dokunmaz; erişilebilirlik renklerin geçerli kalır. Not: dosya seçme ve mesaj pencereleri Windows'a aittir ve her zaman sistem temasını izler, bu yüzden temayı elle sabitlediğinde pencereyle uyuşmayabilirler.
 
 ## Nasıl Çalışır
 
