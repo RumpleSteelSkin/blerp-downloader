@@ -4,7 +4,7 @@ audio (MP3), then combines them with FFmpeg into an MP4."""
 from __future__ import annotations
 
 __author__ = "RumpleSteelSkin"
-__version__ = "1.0.1"
+__version__ = "1.0.2"
 APP_NAME = "Blerp -> MP4 Downloader"
 SIGNATURE = f"By {__author__}"
 
