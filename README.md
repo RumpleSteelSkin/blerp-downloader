@@ -28,6 +28,7 @@ Downloads a Blerp soundbite's animated image (WebP) and its audio (MP3), then co
 - **No authentication required:** bulk listing uses Blerp's public GraphQL API.
 - **Persistent settings:** output folder, overwrite, bulk limit, and a custom FFmpeg location are remembered between runs — see [Settings](#settings).
 - **Clipboard watch (optional, GUI):** detects a copied Blerp soundbite link and either asks before downloading or downloads it automatically.
+- **In-app updates (GUI, packaged build):** a **Check for Updates** button fetches the latest release from GitHub, downloads the installer, and applies it — see [Updating](#updating).
 
 ## Requirements
 
@@ -136,9 +137,36 @@ Two checkboxes enable clipboard watching: **Watch clipboard for Blerp links** de
 
 > `--limit`, `--delay`, and `--overwrite` take effect only in bulk mode. `-o/--out` is interpreted as a file in single mode and as a folder in bulk mode. `-o`, `--limit`, `--delay`, and `--overwrite` all default to whatever is saved in [Settings](#settings) if present, otherwise to the values shown above.
 
+## Updating
+
+The GUI has a **Check for Updates** button that queries this repository's [Releases](https://github.com/RumpleSteelSkin/blerp-downloader/releases).
+
+**Packaged build (installed via the setup wizard):** if a newer version exists, the app downloads `BlerpDownloader-Setup-X.Y.Z.exe`, then — after you confirm — closes itself and runs the installer silently. The installer replaces the files, keeps your shortcuts, and reopens the app automatically. Your `settings.ini` is preserved.
+
+**Running from source:** the button does **not** download or change anything — it tells you to use `git pull` instead, so your checkout (and any local changes) is never touched.
+
+Notes:
+- Downloads land in `%LOCALAPPDATA%\BlerpDownloader\updates\` and are cleaned up automatically after a week. A download is verified against the release's file size and only renamed into place once complete, so a partial download can never be executed. The **Stop** button cancels an in-progress update download.
+- Update checks use GitHub's unauthenticated API, which allows 60 requests per hour per IP. If you hit that limit the app says so and offers to open the Releases page instead.
+- If you're running a version *newer* than the latest release (e.g. a local dev build), the app says so and refuses to "update" you downwards.
+- Each release publishes a `SHA256SUMS.txt` so you can verify the installer if you download it manually. The executables are unsigned, so Windows SmartScreen may warn when you run a browser-downloaded installer — "More info" → "Run anyway", after checking the hash.
+
+### Cutting a release (maintainers)
+
+Releases are built by [`.github/workflows/release.yml`](.github/workflows/release.yml) on a Windows runner:
+
+```bash
+# 1. bump __version__ in blerp_downloader/__init__.py
+# 2. commit it
+git tag v1.1.0
+git push --tags
+```
+
+The workflow verifies the tag matches `__version__` (and fails loudly if you forgot to bump it), builds both executables, compiles the installer, and publishes the release with a SHA-256 checksum file. A tag containing a hyphen (`v1.1.0-rc.1`) is published as a **prerelease**, which the in-app updater ignores — useful for testing the pipeline without shipping to users.
+
 ## Settings
 
-Output folder, overwrite, bulk limit/delay, a custom FFmpeg location, window size, and the clipboard-watch options are persisted in a small INI file (via Python's stdlib `configparser` — a database would be overkill for a handful of key-value settings):
+Output folder, overwrite, bulk limit/delay, a custom FFmpeg location, window size, and the clipboard-watch options are persisted (updates use a separate folder, see [Updating](#updating)) in a small INI file (via Python's stdlib `configparser` — a database would be overkill for a handful of key-value settings):
 
 - Windows: `%APPDATA%\BlerpDownloader\settings.ini`
 - macOS/Linux: `~/.config/blerp-downloader/settings.ini`

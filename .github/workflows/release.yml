@@ -1,0 +1,103 @@
+name: Release
+
+# Publishes a GitHub Release whenever a v* tag is pushed. The in-app updater
+# reads /releases/latest, so this workflow is what makes updates possible.
+#
+# To cut a release:
+#   1) bump __version__ in blerp_downloader/__init__.py
+#   2) commit
+#   3) git tag vX.Y.Z && git push --tags
+#
+# Tags containing a hyphen (v1.0.0-rc.1) are published as prereleases, which
+# /releases/latest excludes - a safe staging channel no shipped app will see.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build (e.g. v1.0.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Resolve version from tag
+        id: ver
+        shell: pwsh
+        run: |
+          $tag = if ('${{ github.event_name }}' -eq 'workflow_dispatch') { '${{ inputs.tag }}' }
+                 else { '${{ github.ref_name }}' }
+          $ver = $tag -replace '^v', ''
+          if ($ver -notmatch '^\d+\.\d+\.\d+([-.+].*)?$') {
+            throw "Tag '$tag' is not vMAJOR.MINOR.PATCH"
+          }
+          "tag=$tag"     >> $env:GITHUB_OUTPUT
+          "version=$ver" >> $env:GITHUB_OUTPUT
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Verify __version__ matches the tag
+        shell: pwsh
+        run: |
+          $py = (python -c "import blerp_downloader as c; print(c.__version__)").Trim()
+          if ($py -ne '${{ steps.ver.outputs.version }}') {
+            throw "blerp_downloader.__version__ is '$py' but the tag says '${{ steps.ver.outputs.version }}'. Bump __init__.py, commit, delete the tag and re-tag."
+          }
+
+      - name: Build executables
+        run: python build.py
+
+      - name: Locate ISCC
+        id: iscc
+        shell: pwsh
+        run: |
+          # Inno Setup installs per-machine or per-user depending on how it was
+          # installed, so check both roots before and after installing it.
+          $c = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+                 "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+                 "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe")
+          $p = $c | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $p) {
+            choco install innosetup -y --no-progress
+            $p = $c | Where-Object { Test-Path $_ } | Select-Object -First 1
+          }
+          if (-not $p) { throw "ISCC.exe not found in: $($c -join '; ')" }
+          "path=$p" >> $env:GITHUB_OUTPUT
+
+      - name: Compile installer
+        shell: pwsh
+        run: '& "${{ steps.iscc.outputs.path }}" /DMyAppVersion=${{ steps.ver.outputs.version }} installer.iss'
+
+      - name: Generate SHA256SUMS
+        shell: pwsh
+        run: |
+          $f = "dist\installer\BlerpDownloader-Setup-${{ steps.ver.outputs.version }}.exe"
+          if (-not (Test-Path $f)) { throw "Installer not produced: $f" }
+          "$((Get-FileHash $f -Algorithm SHA256).Hash.ToLower())  $(Split-Path $f -Leaf)" |
+            Out-File -Encoding ascii "dist\installer\SHA256SUMS.txt"
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Only the installer is uploaded: the updater refuses to launch a bare
+          # .exe asset, and shipping loose exes creates installed-vs-standalone drift.
+          $pre = if ('${{ steps.ver.outputs.tag }}' -like '*-*') { '--prerelease' } else { '' }
+          gh release create '${{ steps.ver.outputs.tag }}' `
+            --title '${{ steps.ver.outputs.tag }}' --generate-notes $pre `
+            "dist\installer\BlerpDownloader-Setup-${{ steps.ver.outputs.version }}.exe" `
+            "dist\installer\SHA256SUMS.txt"

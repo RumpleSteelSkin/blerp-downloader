@@ -80,6 +80,7 @@ class BlerpGUI:
         self.worker: threading.Thread | None = None
         self.cancel = threading.Event()
         self.settings = core.load_settings()
+        self._closing = False   # set before destroy() so _poll stops rescheduling itself
 
         # Baseline the clipboard so whatever was already copied before the app
         # opened doesn't immediately trigger a prompt/auto-download.
@@ -98,6 +99,10 @@ class BlerpGUI:
             pass  # fine if there's no icon
         root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._build()
+        try:
+            core.cleanup_old_downloads()
+        except Exception:
+            pass  # stale-file cleanup must never block startup
         self.root.after(100, self._poll)
 
     # ------------------------------------------------------------------ #
@@ -155,6 +160,8 @@ class BlerpGUI:
         self.stop_btn = ttk.Button(btns, text="Stop", command=self.cancel.set,
                                    state="disabled")
         self.stop_btn.pack(side="left", padx=4)
+        self.upd_btn = ttk.Button(btns, text="Check for Updates", command=self._check_updates)
+        self.upd_btn.pack(side="left", padx=4)
 
         self.prog = ttk.Progressbar(frm, mode="determinate")
         self.prog.grid(row=7, column=0, columnspan=3, sticky="ew", pady=(6, 2))
@@ -165,8 +172,8 @@ class BlerpGUI:
         self.log.grid(row=9, column=0, columnspan=3, sticky="nsew", pady=(6, 0))
         frm.rowconfigure(9, weight=1)
 
-        # Signature
-        ttk.Label(frm, text=core.SIGNATURE, foreground="#888") \
+        # Signature + running version (so bug reports can name a version)
+        ttk.Label(frm, text=f"{core.SIGNATURE}  ·  v{core.__version__}", foreground="#888") \
             .grid(row=10, column=0, columnspan=3, sticky="e", pady=(6, 0))
 
     def _pick_dir(self) -> None:
@@ -211,6 +218,7 @@ class BlerpGUI:
         # Catches preference changes (window size, clipboard-watch toggle, ...) even
         # if the user never clicks Download this session.
         self._save_current_settings(self._current_limit())
+        self._closing = True
         self.root.destroy()
 
     # ------------------------------------------------------------------ #
@@ -234,6 +242,7 @@ class BlerpGUI:
         if self.worker and self.worker.is_alive():
             return
         self.dl_btn.configure(state="disabled")
+        self.upd_btn.configure(state="disabled")
         self.status.configure(text="Installing FFmpeg…")
         self.worker = threading.Thread(target=self._winget_ffmpeg, daemon=True)
         self.worker.start()
@@ -256,6 +265,121 @@ class BlerpGUI:
             self.q.put(("error", f"Failed to install FFmpeg: {e}  ·  {core.FFMPEG_DOWNLOAD_URL}"))
         finally:
             self.q.put(("finish", None))
+
+    # ------------------------------------------------------------------ #
+    #  Self-update (packaged build only)
+    #
+    #  Two-phase, because the background thread must never call messagebox:
+    #  worker checks -> main thread asks -> worker downloads -> main thread
+    #  confirms and hands off to the installer.
+    # ------------------------------------------------------------------ #
+    def _check_updates(self) -> None:
+        if self.worker and self.worker.is_alive():
+            return
+        if not core.is_frozen():
+            # Never touch a source checkout: no download, no git, no file writes.
+            if messagebox.askyesno(
+                "Running from source",
+                "You are running Blerp Downloader from source, so there is nothing "
+                "to update automatically.\n\nUpdate with:\n    git pull\n\n"
+                "The in-app updater only applies to the packaged Windows build.\n\n"
+                "Open the Releases page?",
+            ):
+                webbrowser.open(core.RELEASES_PAGE_URL)
+            return
+
+        self.dl_btn.configure(state="disabled")
+        self.upd_btn.configure(state="disabled")
+        self.status.configure(text="Checking for updates…")
+        self.worker = threading.Thread(target=self._update_check_worker, daemon=True)
+        self.worker.start()
+
+    def _update_check_worker(self) -> None:
+        try:
+            self.q.put(("update_result", core.check_for_update(core.__version__)))
+        except Exception as e:
+            self.q.put(("error", f"Update check failed: {e}"))
+        finally:
+            self.q.put(("finish", None))
+
+    def _on_update_result(self, st) -> None:
+        """Main thread: react to a finished update check."""
+        self._log(st.message)
+        self.status.configure(text=st.message)
+
+        if st.state == core.UpdateState.AVAILABLE and st.info:
+            notes = f"\n\nWhat's new:\n{st.info.notes}" if st.info.notes else ""
+            if messagebox.askyesno(
+                "Update available",
+                f"Version {st.info.version} is available (you have {st.current}).\n\n"
+                f"Download it now? ({st.info.asset_size / 1_048_576:.1f} MB){notes}",
+            ):
+                self._start_update_download(st.info)
+        elif st.state in (core.UpdateState.RATE_LIMITED, core.UpdateState.ERROR,
+                          core.UpdateState.UNCOMPARABLE):
+            # Never a dead end: always offer the manual route.
+            if messagebox.askyesno("Update check", f"{st.message}\n\nOpen the Releases page?"):
+                webbrowser.open(core.RELEASES_PAGE_URL)
+
+    def _start_update_download(self, info) -> None:
+        if self.worker and self.worker.is_alive():
+            return
+        self.cancel.clear()
+        self.dl_btn.configure(state="disabled")
+        self.upd_btn.configure(state="disabled")
+        self.stop_btn.configure(state="normal")
+        self.prog.configure(value=0)
+        self.worker = threading.Thread(target=self._update_download_worker,
+                                       args=(info,), daemon=True)
+        self.worker.start()
+
+    def _update_download_worker(self, info) -> None:
+        total_mb = info.asset_size / 1_048_576 if info.asset_size else 0
+
+        def on_progress(got: int, total: int) -> None:
+            self.q.put(("progress", int(got * 100 / total) if total else 0))
+            self.q.put(("status", f"Downloading update… "
+                                  f"{got / 1_048_576:.1f} / {total_mb:.1f} MB"))
+
+        self.q.put(("total", 100))
+        self.q.put(("log", f"Downloading {info.asset_name}…"))
+        try:
+            path = core.download_installer(info, current_version=core.__version__,
+                                           on_progress=on_progress, cancel=self.cancel)
+            self.q.put(("update_downloaded", (info, path)))
+        except core.BlerpError as e:
+            self.q.put(("error", str(e)))
+        except Exception as e:
+            self.q.put(("error", f"Unexpected error while downloading the update: {e}"))
+        finally:
+            self.q.put(("finish", None))
+
+    def _on_update_downloaded(self, info, path: Path) -> None:
+        """Main thread: confirm, then hand off to the installer and exit."""
+        self._log(f"✓ Downloaded → {path}")
+        if not messagebox.askokcancel(
+            "Ready to install",
+            f"Blerp Downloader will now close and version {info.version} will be installed.\n\n"
+            "The app reopens automatically when it is done.",
+        ):
+            self._log(f"Installer saved to {path} - you can run it later.")
+            return
+
+        # Save settings BEFORE launching so the INI write can't race process teardown.
+        self._save_current_settings(self._current_limit())
+        try:
+            core.launch_installer(path)
+        except Exception as e:
+            # Antivirus can quarantine the file between download and launch.
+            self._log(f"✗ Could not start the installer: {e}")
+            messagebox.showerror(
+                "Could not start the installer",
+                f"{e}\n\nYour antivirus may have removed it. You can run it manually:\n{path}\n\n"
+                f"Or download it from:\n{core.RELEASES_PAGE_URL}",
+            )
+            return
+        self._closing = True
+        self.root.destroy()
 
     # ------------------------------------------------------------------ #
     #  Start / background work (never touches GUI widgets - queue only)
@@ -283,6 +407,7 @@ class BlerpGUI:
 
         self.cancel.clear()
         self.dl_btn.configure(state="disabled")
+        self.upd_btn.configure(state="disabled")
         self.stop_btn.configure(state="normal")
         self.prog.configure(value=0)
         self.worker = threading.Thread(
@@ -401,31 +526,43 @@ class BlerpGUI:
         self.log.see("end")
         self.log.configure(state="disabled")
 
+    def _handle(self, kind: str, val) -> None:
+        """Applies one queued message from a worker thread to the UI."""
+        if kind == "log":
+            self._log(val)
+        elif kind == "total":
+            self.prog.configure(maximum=max(val, 1))
+        elif kind == "progress":
+            self.prog.configure(value=val)
+        elif kind == "status":
+            self.status.configure(text=val)
+        elif kind == "done":
+            self._log(val)
+            self.status.configure(text=val)
+        elif kind == "error":
+            self._log(f"✗ ERROR: {val}")
+            self.status.configure(text="An error occurred.")
+        elif kind == "finish":
+            self.dl_btn.configure(state="normal")
+            self.upd_btn.configure(state="normal")
+            self.stop_btn.configure(state="disabled")
+        elif kind == "update_result":
+            self._on_update_result(val)
+        elif kind == "update_downloaded":
+            self._on_update_downloaded(*val)
+
     def _poll(self) -> None:
+        if self._closing:
+            return
         self._check_clipboard()
         try:
-            while True:
+            while not self._closing:   # _handle may hand off to the installer
                 kind, val = self.q.get_nowait()
-                if kind == "log":
-                    self._log(val)
-                elif kind == "total":
-                    self.prog.configure(maximum=max(val, 1))
-                elif kind == "progress":
-                    self.prog.configure(value=val)
-                elif kind == "status":
-                    self.status.configure(text=val)
-                elif kind == "done":
-                    self._log(val)
-                    self.status.configure(text=val)
-                elif kind == "error":
-                    self._log(f"✗ ERROR: {val}")
-                    self.status.configure(text="An error occurred.")
-                elif kind == "finish":
-                    self.dl_btn.configure(state="normal")
-                    self.stop_btn.configure(state="disabled")
+                self._handle(kind, val)
         except queue.Empty:
             pass
-        self.root.after(100, self._poll)
+        if not self._closing:
+            self.root.after(100, self._poll)
 
 
 def main() -> None:

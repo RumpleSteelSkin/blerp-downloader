@@ -99,6 +99,10 @@ def main() -> None:
     print("\n=== Packaging console (blerp.exe) ===")
     pyinstaller(*common, "--console", "--name", "blerp", "blerp_to_mp4.py")
 
+    # installer.iss reads this so the version lives in exactly one place
+    # (blerp_downloader/__init__.py) instead of being duplicated in the .iss.
+    (ROOT / "dist" / "VERSION.txt").write_text(VERSION, encoding="ascii")
+
     print(f"\n✓ Done.  In dist/:  BlerpDownloader.exe  +  blerp.exe   ·  By {AUTHOR}")
 
 

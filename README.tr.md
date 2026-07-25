@@ -28,6 +28,7 @@ Bir Blerp soundbite'ının animasyonlu görselini (WebP) ve sesini (MP3) indirip
 - **Kimlik doğrulama gerektirmez:** Toplu listeleme, Blerp'in açık GraphQL API'sini kullanır.
 - **Kalıcı ayarlar:** Çıktı klasörü, üzerine yazma, toplu limit ve özel bir FFmpeg konumu çalıştırmalar arasında hatırlanır — bkz. [Ayarlar](#ayarlar).
 - **Panoyu izleme (opsiyonel, GUI):** Kopyalanan bir Blerp soundbite linkini algılar; ya indirmeden önce sorar ya da otomatik indirir.
+- **Uygulama içi güncelleme (GUI, paketlenmiş sürüm):** **Check for Updates** butonu GitHub'daki son sürümü çeker, installer'ı indirip uygular — bkz. [Güncelleme](#güncelleme).
 
 ## Gereksinimler
 
@@ -136,9 +137,36 @@ Tek kutuya bir soundbite URL'si **ya da** kullanıcı adı / profil URL'si yapı
 
 > `--limit`, `--delay` ve `--overwrite` yalnızca toplu modda etkilidir. `-o/--out`, tek modda dosya, toplu modda klasör olarak yorumlanır. `-o`, `--limit`, `--delay` ve `--overwrite`'ın hepsi varsa [Ayarlar](#ayarlar)'da kayıtlı değeri, yoksa yukarıdaki varsayılanları kullanır.
 
+## Güncelleme
+
+GUI'de, bu deponun [Releases](https://github.com/RumpleSteelSkin/blerp-downloader/releases) sayfasını sorgulayan bir **Check for Updates** butonu var.
+
+**Paketlenmiş sürüm (kurulum sihirbazıyla kurulmuş):** Yeni bir sürüm varsa uygulama `BlerpDownloader-Setup-X.Y.Z.exe` dosyasını indirir; siz onayladıktan sonra kendini kapatır ve installer'ı sessizce çalıştırır. Installer dosyaları değiştirir, kısayollarınızı korur ve uygulamayı otomatik olarak tekrar açar. `settings.ini` dosyanız korunur.
+
+**Kaynaktan çalıştırma:** Buton hiçbir şey indirmez ve hiçbir şeyi değiştirmez — bunun yerine `git pull` kullanmanızı söyler; yani checkout'unuza (ve yerel değişikliklerinize) asla dokunulmaz.
+
+Notlar:
+- İndirilenler `%LOCALAPPDATA%\BlerpDownloader\updates\` altına iner ve bir hafta sonra otomatik temizlenir. İndirilen dosya, release'teki dosya boyutuna karşı doğrulanır ve ancak tamamlandığında yerine taşınır; yani yarım kalmış bir indirme asla çalıştırılamaz. **Stop** butonu devam eden bir güncelleme indirmesini iptal eder.
+- Güncelleme kontrolü GitHub'ın kimlik doğrulamasız API'sini kullanır; bu API saatte IP başına 60 isteğe izin verir. Bu limite takılırsanız uygulama bunu söyler ve Releases sayfasını açmayı önerir.
+- Son release'ten *daha yeni* bir sürüm çalıştırıyorsanız (ör. yerel bir geliştirme derlemesi), uygulama bunu bildirir ve sizi geriye "güncellemeyi" reddeder.
+- Her release bir `SHA256SUMS.txt` yayınlar; installer'ı elle indirirseniz doğrulayabilirsiniz. Çalıştırılabilir dosyalar imzasız olduğundan, tarayıcıyla indirilen bir installer'ı çalıştırırken Windows SmartScreen uyarı verebilir — hash'i kontrol ettikten sonra "Daha fazla bilgi" → "Yine de çalıştır".
+
+### Release çıkarma (geliştiriciler için)
+
+Release'ler bir Windows runner üzerinde [`.github/workflows/release.yml`](.github/workflows/release.yml) tarafından üretilir:
+
+```bash
+# 1. blerp_downloader/__init__.py içindeki __version__ değerini yükselt
+# 2. commit'le
+git tag v1.1.0
+git push --tags
+```
+
+Workflow, tag ile `__version__` uyuşuyor mu diye doğrular (yükseltmeyi unuttuysanız build'i sesli şekilde patlatır), her iki çalıştırılabiliri derler, installer'ı üretir ve release'i SHA-256 checksum dosyasıyla birlikte yayınlar. İçinde tire olan bir tag (`v1.1.0-rc.1`) **prerelease** olarak yayınlanır; uygulama içi güncelleyici bunları görmez — pipeline'ı kullanıcılara göndermeden test etmek için kullanışlıdır.
+
 ## Ayarlar
 
-Çıktı klasörü, üzerine yazma, toplu limit/gecikme, özel bir FFmpeg konumu, pencere boyutu ve pano izleme seçenekleri küçük bir INI dosyasında saklanır (Python'un standart kütüphanesindeki `configparser` ile — birkaç anahtar-değer ayarı için bir veritabanı gereğinden fazla olurdu):
+Çıktı klasörü, üzerine yazma, toplu limit/gecikme, özel bir FFmpeg konumu, pencere boyutu ve pano izleme seçenekleri küçük bir INI dosyasında saklanır (güncellemeler ayrı bir klasör kullanır, bkz. [Güncelleme](#güncelleme)) (Python'un standart kütüphanesindeki `configparser` ile — birkaç anahtar-değer ayarı için bir veritabanı gereğinden fazla olurdu):
 
 - Windows: `%APPDATA%\BlerpDownloader\settings.ini`
 - macOS/Linux: `~/.config/blerp-downloader/settings.ini`
