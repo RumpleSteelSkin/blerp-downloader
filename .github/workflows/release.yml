@@ -38,26 +38,41 @@ jobs:
       - name: Resolve version from tag
         id: ver
         shell: pwsh
+        # Values arrive via env, never interpolated into the script body:
+        # ${{ }} is substituted textually before PowerShell parses the script,
+        # so a tag containing a quote would run as code - and it would do so
+        # before the pattern below had a chance to reject it.
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          $tag = if ('${{ github.event_name }}' -eq 'workflow_dispatch') { '${{ inputs.tag }}' }
-                 else { '${{ github.ref_name }}' }
+          $tag = if ($env:EVENT -eq 'workflow_dispatch') { $env:INPUT_TAG } else { $env:REF_NAME }
           $ver = $tag -replace '^v', ''
-          if ($ver -notmatch '^\d+\.\d+\.\d+([-.+].*)?$') {
-            throw "Tag '$tag' is not vMAJOR.MINOR.PATCH"
+          # Deliberately strict: the previous pattern ended in `([-.+].*)?`,
+          # which accepted anything at all after a hyphen.
+          if ($ver -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$') {
+            throw "Tag '$tag' is not vMAJOR.MINOR.PATCH[-prerelease]"
           }
           "tag=$tag"     >> $env:GITHUB_OUTPUT
           "version=$ver" >> $env:GITHUB_OUTPUT
 
       - name: Install dependencies
-        run: pip install -r requirements.txt pyinstaller
+        run: pip install -r requirements.txt -r requirements-build.txt
 
       - name: Verify __version__ matches the tag
         shell: pwsh
+        env:
+          WANT: ${{ steps.ver.outputs.version }}
         run: |
           $py = (python -c "import blerp_downloader as c; print(c.__version__)").Trim()
-          if ($py -ne '${{ steps.ver.outputs.version }}') {
-            throw "blerp_downloader.__version__ is '$py' but the tag says '${{ steps.ver.outputs.version }}'. Bump __init__.py, commit, delete the tag and re-tag."
+          if ($py -ne $env:WANT) {
+            throw "blerp_downloader.__version__ is '$py' but the tag says '$env:WANT'. Bump __init__.py, commit, delete the tag and re-tag."
           }
+
+      - name: Run tests
+        # Before anything is built: a release must never ship from a red suite.
+        run: python -m unittest discover tests -v
 
       - name: Build executables
         run: python build.py
@@ -73,7 +88,9 @@ jobs:
                  "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe")
           $p = $c | Where-Object { Test-Path $_ } | Select-Object -First 1
           if (-not $p) {
-            choco install innosetup -y --no-progress
+            # Pinned: this compiles the binary users execute, so it should not
+            # change from one release to the next without us choosing it.
+            choco install innosetup --version=6.4.3 -y --no-progress
             $p = $c | Where-Object { Test-Path $_ } | Select-Object -First 1
           }
           if (-not $p) { throw "ISCC.exe not found in: $($c -join '; ')" }
@@ -81,13 +98,20 @@ jobs:
 
       - name: Compile installer
         shell: pwsh
-        run: '& "${{ steps.iscc.outputs.path }}" /DMyAppVersion=${{ steps.ver.outputs.version }} installer.iss'
+        env:
+          ISCC: ${{ steps.iscc.outputs.path }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: '& $env:ISCC "/DMyAppVersion=$env:VERSION" installer.iss'
 
       - name: Generate SHA256SUMS
         shell: pwsh
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
-          $f = "dist\installer\BlerpDownloader-Setup-${{ steps.ver.outputs.version }}.exe"
+          $f = "dist\installer\BlerpDownloader-Setup-$env:VERSION.exe"
           if (-not (Test-Path $f)) { throw "Installer not produced: $f" }
+          # The app verifies the download against this file, so its format is a
+          # contract: "<lowercase sha256>  <filename>".
           "$((Get-FileHash $f -Algorithm SHA256).Hash.ToLower())  $(Split-Path $f -Leaf)" |
             Out-File -Encoding ascii "dist\installer\SHA256SUMS.txt"
 
@@ -95,10 +119,12 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $tag = '${{ steps.ver.outputs.tag }}'
-          $installer = "dist\installer\BlerpDownloader-Setup-${{ steps.ver.outputs.version }}.exe"
+          $tag = $env:TAG
+          $installer = "dist\installer\BlerpDownloader-Setup-$env:VERSION.exe"
           $sums = "dist\installer\SHA256SUMS.txt"
           foreach ($f in @($installer, $sums)) {
             if (-not (Test-Path $f)) { throw "Missing asset: $f" }

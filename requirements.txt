@@ -1,1 +1,5 @@
-Pillow>=10.0
+# Pillow decodes WebP files downloaded from the internet, so the floor matters
+# (security fixes) and so does the ceiling: a new major could change the
+# frame-seeking behaviour that frames.py depends on, and CI would first find out
+# on release day. Widen deliberately after testing, not by accident.
+Pillow>=10.3,<13

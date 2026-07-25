@@ -1,0 +1,6 @@
+# Build-time only; the app itself needs requirements.txt.
+#
+# Pinned because PyInstaller's bootloader is a native binary embedded in every
+# shipped executable: leaving it floating means two releases built from the same
+# source can differ, and antivirus heuristics can change underneath us.
+pyinstaller==6.20.0

@@ -53,7 +53,11 @@ def ensure_pyinstaller() -> None:
         import PyInstaller  # noqa: F401
     except ImportError:
         print("Installing PyInstaller...")
-        subprocess.run([sys.executable, "-m", "pip", "install", "pyinstaller"], check=True)
+        # From the pinned requirements file, so a local build uses the same
+        # bootloader as the released one rather than whatever is newest today.
+        req = ROOT / "requirements-build.txt"
+        args = ["-r", str(req)] if req.exists() else ["pyinstaller"]
+        subprocess.run([sys.executable, "-m", "pip", "install", *args], check=True)
 
 
 def write_version_info() -> None:

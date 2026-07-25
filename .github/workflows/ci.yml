@@ -1,0 +1,55 @@
+name: CI
+
+# Runs the test suite on every push and pull request.
+#
+# Until this existed, release.yml was the only workflow and it triggers on tags
+# only, with no test step - so the suite could be entirely red and a release
+# would still build and publish.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: windows-latest      # the app is Windows-only; so is its test suite
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor documented in the README, and the version CI builds with.
+        python-version: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: python -m unittest discover tests -v
+
+      - name: Check every module imports
+        # Catches a syntax error or bad import in a module no test touches yet.
+        shell: pwsh
+        run: |
+          Get-ChildItem blerp_downloader -Filter *.py |
+            ForEach-Object {
+              $m = "blerp_downloader." + $_.BaseName
+              if ($_.BaseName -ne "__init__") {
+                python -c "import $m"
+                if ($LASTEXITCODE -ne 0) { throw "failed to import $m" }
+              }
+            }
+          python -c "import blerp_gui"
