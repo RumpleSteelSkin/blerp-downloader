@@ -68,9 +68,10 @@ Name: "turkish"; MessagesFile: "compiler:Languages\Turkish.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "dist\BlerpDownloader.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "dist\blerp.exe";           DestDir: "{app}"; Flags: ignoreversion
-Source: "README.md";                DestDir: "{app}"; Flags: ignoreversion isreadme
+; A folder build: both executables plus the Python runtime they share.
+Source: "dist\BlerpDownloader\*"; DestDir: "{app}"; \
+  Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "README.md";              DestDir: "{app}"; Flags: ignoreversion isreadme
 
 [Icons]
 Name: "{group}\{#MyAppName}";        Filename: "{app}\{#MyAppExe}"

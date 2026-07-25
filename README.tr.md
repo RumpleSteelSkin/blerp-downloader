@@ -227,12 +227,15 @@ python generate_logo.py   # assets/icon.ico'yu üretir (yalnızca bir kez gerekl
 python build.py
 ```
 
-`dist/` içinde iki tek-dosya exe üretir (dosya özelliklerinde *By RumpleSteelSkin* imzalı):
+`dist/BlerpDownloader/` klasörünü üretir (dosya özelliklerinde *By RumpleSteelSkin* imzalı); içinde her iki program ve ortak kullandıkları Python runtime'ı bulunur:
 
 - **`BlerpDownloader.exe`** — GUI (pencereli)
 - **`blerp.exe`** — komut satırı aracı
+- **`_internal/`** — ortak runtime
 
-> ffmpeg/ffprobe exe'lere **gömülmez**; hedef makinede `PATH` üzerinde bulunmalıdır.
+Bu bilinçli olarak tek-dosya değil klasör paketlemesi. Tek-dosya exe her açılışta tüm runtime'ını `%TEMP%` altına açar; bu adıma bir şey karışırsa (yeni yazılmış imzasız bir exe'yi tarayan antivirüs, temp temizliği) uygulama *"Failed to load Python DLL"* ile ölür. Klasör paketlemesinde açılacak bir şey yoktur; daha hızlı başlar ve bu hata mümkün değildir. Runtime'ın iki exe arasında paylaşılması installer'ı da küçültür. Ödünü: exe'ler yanlarındaki klasöre ihtiyaç duyar, yani sadece `.exe`'yi kopyalayıp başka yere taşımak çalışmaz.
+
+> ffmpeg/ffprobe **gömülmez**; hedef makinede `PATH` üzerinde (ya da [Ayarlar](#ayarlar)'da belirtilen klasörde) bulunmalıdır.
 
 Windows kurulum sihirbazı için [Inno Setup 6](https://jrsoftware.org/isinfo.php) kurun (`winget install JRSoftware.InnoSetup`) ve dahil edilen betiği derleyin:
 

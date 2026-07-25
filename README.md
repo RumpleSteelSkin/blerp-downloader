@@ -227,12 +227,15 @@ python generate_logo.py   # regenerates assets/icon.ico (only needed once)
 python build.py
 ```
 
-This produces two single-file executables in `dist/` (signed *By RumpleSteelSkin* in their file properties):
+This produces `dist/BlerpDownloader/` (signed *By RumpleSteelSkin* in the file properties), holding both programs plus the Python runtime they share:
 
 - **`BlerpDownloader.exe`** — the GUI (windowed)
 - **`blerp.exe`** — the command-line tool
+- **`_internal/`** — the shared runtime
 
-> ffmpeg/ffprobe are **not** bundled into the executables; the target machine must have them on its `PATH`.
+It's a folder build rather than two single-file executables on purpose. A single-file exe unpacks its whole runtime into `%TEMP%` on every launch, and if anything disturbs that — an antivirus scanning a freshly written unsigned exe, temp cleanup — it fails with *"Failed to load Python DLL"*. A folder build has nothing to unpack, so it starts faster and can't fail that way. Sharing one runtime between the two executables also makes the installer smaller. The trade-off: the executables need the folder around them, so copying just the `.exe` somewhere else won't work.
+
+> ffmpeg/ffprobe are **not** bundled; the target machine must have them on its `PATH` (or the folder set in [Settings](#settings)).
 
 To build a Windows setup wizard, install [Inno Setup 6](https://jrsoftware.org/isinfo.php) (`winget install JRSoftware.InnoSetup`) and compile the included script:
 
