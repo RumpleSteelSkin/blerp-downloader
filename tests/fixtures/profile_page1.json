@@ -1,0 +1,42 @@
+{
+  "_comment": "Shape of soundEmotesFeaturedContentPagination as listing.py reads it. Page 1 of 2: two usable bites and one with no media, which the code must drop and count. hasNextPage drives the loop.",
+  "data": {
+    "soundEmotes": {
+      "soundEmotesFeaturedContentPagination": {
+        "pageInfo": { "hasNextPage": true },
+        "items": [
+          {
+            "biteId": "aaaaaaaaaaaaaaaaaaaaaaa1",
+            "bite": {
+              "_id": "aaaaaaaaaaaaaaaaaaaaaaa1",
+              "title": "First",
+              "audioDuration": 1000,
+              "audio": { "mp3": { "url": "https://cdn.blerp.com/a1.mp3" } },
+              "image": { "original": { "url": "https://cdn.blerp.com/i1.webp" } }
+            }
+          },
+          {
+            "biteId": "aaaaaaaaaaaaaaaaaaaaaaa2",
+            "bite": {
+              "_id": "aaaaaaaaaaaaaaaaaaaaaaa2",
+              "title": "No image on the server",
+              "audioDuration": 2000,
+              "audio": { "mp3": { "url": "https://cdn.blerp.com/a2.mp3" } },
+              "image": null
+            }
+          },
+          {
+            "biteId": "aaaaaaaaaaaaaaaaaaaaaaa3",
+            "bite": {
+              "_id": "aaaaaaaaaaaaaaaaaaaaaaa3",
+              "title": "Second",
+              "audioDuration": 3000,
+              "audio": { "mp3": { "url": "https://cdn.blerp.com/a3.mp3" } },
+              "image": { "original": { "url": "https://cdn.blerp.com/i3.webp" } }
+            }
+          }
+        ]
+      }
+    }
+  }
+}

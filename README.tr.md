@@ -34,7 +34,7 @@ Bir Blerp soundbite'ının animasyonlu görselini (WebP) ve sesini (MP3) indirip
 
 - **Python 3.9+**
 - **ffmpeg** ve **ffprobe** — ikisi de PATH üzerinde erişilebilir olmalı (harici ikili dosyalar; `requirements.txt`'te yer almaz).
-- **Pillow** (`Pillow>=10.0`) — animasyonlu WebP'yi karelere ayırmak için.
+- **Pillow** (`Pillow>=10.3,<13`) — animasyonlu WebP'yi karelere ayırmak için.
 
 ## Kurulum
 
@@ -146,7 +146,8 @@ GUI'de, bu deponun [Releases](https://github.com/RumpleSteelSkin/blerp-downloade
 **Kaynaktan çalıştırma:** Buton hiçbir şey indirmez ve hiçbir şeyi değiştirmez — bunun yerine `git pull` kullanmanızı söyler; yani checkout'unuza (ve yerel değişikliklerinize) asla dokunulmaz.
 
 Notlar:
-- İndirilenler `%LOCALAPPDATA%\BlerpDownloader\updates\` altına iner ve bir hafta sonra otomatik temizlenir. İndirilen dosya, release'teki dosya boyutuna karşı doğrulanır ve ancak tamamlandığında yerine taşınır; yani yarım kalmış bir indirme asla çalıştırılamaz. **Stop** butonu devam eden bir güncelleme indirmesini iptal eder.
+- İndirilenler `%LOCALAPPDATA%\BlerpDownloader\updates\` altına iner ve bir hafta sonra otomatik temizlenir. **Stop** butonu devam eden bir güncelleme indirmesini iptal eder.
+- **İndirilen dosya çalıştırılmadan önce doğrulanır.** SHA-256'sı release ile yayınlanan `SHA256SUMS.txt` içindeki değere karşı kontrol edilir; ancak eşleşirse yerine taşınır ve ancak o zaman çalıştırılır. Checksum dosyası olmayan bir release güvenilmez sayılıp reddedilir, ve kaydedilen dosya adı sunucunun verdiği addan değil sürüm numarasından türetilir.
 - Güncelleme kontrolü GitHub'ın kimlik doğrulamasız API'sini kullanır; bu API saatte IP başına 60 isteğe izin verir. Bu limite takılırsanız uygulama bunu söyler ve Releases sayfasını açmayı önerir.
 - Son release'ten *daha yeni* bir sürüm çalıştırıyorsanız (ör. yerel bir geliştirme derlemesi), uygulama bunu bildirir ve sizi geriye "güncellemeyi" reddeder.
 - Her release bir `SHA256SUMS.txt` yayınlar; installer'ı elle indirirseniz doğrulayabilirsiniz. Çalıştırılabilir dosyalar imzasız olduğundan, tarayıcıyla indirilen bir installer'ı çalıştırırken Windows SmartScreen uyarı verebilir — hash'i kontrol ettikten sonra "Daha fazla bilgi" → "Yine de çalıştır".
@@ -244,6 +245,17 @@ ISCC installer.iss
 ```
 
 Kurulum dosyası (`dist/installer/BlerpDownloader-Setup-<sürüm>.exe`) her iki exe'yi kurar, Başlat Menüsü / masaüstü kısayolları oluşturur ve yayıncı olarak **RumpleSteelSkin**'i gösterir. Kurulum **kullanıcı bazlıdır (yönetici sormaz)** ve ffmpeg `PATH`'te yoksa kurulum sırasında **winget** ile otomatik kurar — yani son kullanıcının **ne Python'a ne de ffmpeg'e** elle ihtiyacı olur. (winget yoksa installer ffmpeg indirme linkini gösterir.)
+
+## Geliştirme
+
+```bash
+python -m unittest discover tests        # tüm testler
+python -m unittest tests.test_scraping   # tek modül
+```
+
+Testler her push ve pull request'te ([`ci.yml`](.github/workflows/ci.yml)) Python 3.9 ve 3.12 üzerinde, ayrıca her release derlenmeden önce çalışır — testler kırıkken release yayınlanamaz.
+
+`tests/fixtures/` blerp.com yanıtlarının yakalanmış hallerini tutar: soundbite sayfasının gömdüğü `__NEXT_DATA__` bloğu ve sayfalanmış bir profil listesi. Amaçları, sitenin yapısı değişirse bunun kullanıcının hata bildirimi yerine commit anında bir testi düşürmesi — yani scraping bozulursa ilk adım fixture'ı güncellemektir.
 
 ## Sorun Giderme
 

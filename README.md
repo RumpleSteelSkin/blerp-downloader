@@ -34,7 +34,7 @@ Downloads a Blerp soundbite's animated image (WebP) and its audio (MP3), then co
 
 - **Python 3.9+**
 - **ffmpeg** and **ffprobe** — both must be available on PATH (external binaries; not listed in `requirements.txt`).
-- **Pillow** (`Pillow>=10.0`) — for splitting the animated WebP into frames.
+- **Pillow** (`Pillow>=10.3,<13`) — for splitting the animated WebP into frames.
 
 ## Installation
 
@@ -146,7 +146,8 @@ The GUI has a **Check for Updates** button that queries this repository's [Relea
 **Running from source:** the button does **not** download or change anything — it tells you to use `git pull` instead, so your checkout (and any local changes) is never touched.
 
 Notes:
-- Downloads land in `%LOCALAPPDATA%\BlerpDownloader\updates\` and are cleaned up automatically after a week. A download is verified against the release's file size and only renamed into place once complete, so a partial download can never be executed. The **Stop** button cancels an in-progress update download.
+- Downloads land in `%LOCALAPPDATA%\BlerpDownloader\updates\` and are cleaned up automatically after a week. The **Stop** button cancels an in-progress update download.
+- **The download is verified before it is run.** Its SHA-256 is checked against the `SHA256SUMS.txt` published with the release, and the file is only moved into place — and only then launched — if it matches. A release without a checksum file is refused rather than trusted, and the saved filename comes from the version, never from the name the server supplies.
 - Update checks use GitHub's unauthenticated API, which allows 60 requests per hour per IP. If you hit that limit the app says so and offers to open the Releases page instead.
 - If you're running a version *newer* than the latest release (e.g. a local dev build), the app says so and refuses to "update" you downwards.
 - Each release publishes a `SHA256SUMS.txt` so you can verify the installer if you download it manually. The executables are unsigned, so Windows SmartScreen may warn when you run a browser-downloaded installer — "More info" → "Run anyway", after checking the hash.
@@ -244,6 +245,17 @@ ISCC installer.iss
 ```
 
 The installer (`dist/installer/BlerpDownloader-Setup-<version>.exe`) installs both executables, creates Start Menu / desktop shortcuts, and lists **RumpleSteelSkin** as the publisher. It installs **per-user (no admin prompt)** and, if ffmpeg is not already on the `PATH`, fetches it automatically via **winget** during setup — so the end user needs **neither Python nor ffmpeg** pre-installed. (If winget is unavailable, the installer shows the ffmpeg download link instead.)
+
+## Development
+
+```bash
+python -m unittest discover tests        # the full suite
+python -m unittest tests.test_scraping   # one module
+```
+
+The suite runs on every push and pull request ([`ci.yml`](.github/workflows/ci.yml)) on Python 3.9 and 3.12, and again before a release is built — a release cannot be published from a failing suite.
+
+`tests/fixtures/` holds captured shapes of blerp.com's responses: the `__NEXT_DATA__` blob a soundbite page embeds, and a paginated profile listing. They exist so that a change to the site's structure fails a test at commit time rather than surfacing as "no audio URL found" in a user's bug report — so if the scraping breaks in the wild, updating the fixture is the first step.
 
 ## Troubleshooting
 

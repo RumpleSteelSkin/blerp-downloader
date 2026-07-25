@@ -1,0 +1,16 @@
+<!doctype html>
+<!--
+  Trimmed shape of a blerp.com soundbite page. Only the parts scraping.py relies
+  on are kept: the __NEXT_DATA__ script, the Apollo cache keyed "Bite:<id>", and
+  the __ref indirection from a bite to its audio and image records.
+
+  If blerp.com changes any of that, the tests reading this file are what should
+  fail - before a release goes out, rather than in a user's bug report.
+-->
+<html lang="en">
+<head><title>test blerp</title></head>
+<body>
+<div id="__next">…page markup…</div>
+<script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"initialApolloState":{"Bite:68a1b2c3d4e5f60718293a4b":{"__typename":"Bite","_id":"68a1b2c3d4e5f60718293a4b","title":"Test Blerp","audioDuration":5500,"audio":{"__ref":"BiteAudio:68a1b2c3d4e5f60718293a4b"},"image":{"__ref":"BiteImage:68a1b2c3d4e5f60718293a4b"}},"BiteAudio:68a1b2c3d4e5f60718293a4b":{"__typename":"BiteAudio","mp3":{"url":"https://cdn.blerp.com/audio/test.mp3"}},"BiteImage:68a1b2c3d4e5f60718293a4b":{"__typename":"BiteImage","original":{"url":"https://cdn.blerp.com/image/test.webp"}}}},"__N_SSP":true},"page":"/soundbites/[id]","buildId":"testbuild"}</script>
+</body>
+</html>

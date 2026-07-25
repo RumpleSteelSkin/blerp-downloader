@@ -1,0 +1,32 @@
+{
+  "_comment": "Page 2 of 2: repeats one bite from page 1 (the API does this when the underlying order shifts between requests) so de-duplication is exercised, and ends the loop with hasNextPage false.",
+  "data": {
+    "soundEmotes": {
+      "soundEmotesFeaturedContentPagination": {
+        "pageInfo": { "hasNextPage": false },
+        "items": [
+          {
+            "biteId": "aaaaaaaaaaaaaaaaaaaaaaa3",
+            "bite": {
+              "_id": "aaaaaaaaaaaaaaaaaaaaaaa3",
+              "title": "Second",
+              "audioDuration": 3000,
+              "audio": { "mp3": { "url": "https://cdn.blerp.com/a3.mp3" } },
+              "image": { "original": { "url": "https://cdn.blerp.com/i3.webp" } }
+            }
+          },
+          {
+            "biteId": "aaaaaaaaaaaaaaaaaaaaaaa4",
+            "bite": {
+              "_id": "aaaaaaaaaaaaaaaaaaaaaaa4",
+              "title": "Third",
+              "audioDuration": 4000,
+              "audio": { "mp3": { "url": "https://cdn.blerp.com/a4.mp3" } },
+              "image": { "original": { "url": "https://cdn.blerp.com/i4.webp" } }
+            }
+          }
+        ]
+      }
+    }
+  }
+}
