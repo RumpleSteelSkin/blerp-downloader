@@ -65,14 +65,17 @@ def detect_mode(target: str) -> tuple[str, str]:
 
 def looks_like_blerp_soundbite_url(text: str) -> str | None:
     """
-    Strict single-soundbite match for clipboard watching only: requires the
-    blerp.com domain, unlike the paste-box's looser detect_mode()/OBJECTID_RE,
-    since this runs unattended against arbitrary clipboard content (a bare
-    24-hex match alone would false-positive on an unrelated git SHA, UUID
-    fragment, or any other 24-hex string the user happens to copy).
+    Strict single-soundbite match for clipboard watching only: the host must
+    actually be blerp.com, unlike the paste box's looser detect_mode(), because
+    this runs unattended against whatever happens to be on the clipboard.
+
+    The host is compared after parsing rather than by searching the string:
+    "blerp.com" appearing anywhere - in a path, a query parameter, or as
+    "blerp.com.attacker.tld" - is not the same as the URL pointing at Blerp,
+    and with auto-download enabled the difference is a fetch nobody approved.
     """
     text = (text or "").strip()
-    if "blerp.com" not in text:
+    if not core.is_blerp_url(text):
         return None
     if "/soundbites/" in text or core.OBJECTID_RE.search(text):
         return text

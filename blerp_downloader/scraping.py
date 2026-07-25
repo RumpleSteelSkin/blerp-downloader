@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 from .errors import BlerpError
 from .network import http_get
@@ -13,6 +14,24 @@ OBJECTID_RE = re.compile(r"[0-9a-fA-F]{24}")
 NEXT_DATA_RE = re.compile(
     r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', re.S
 )
+
+BLERP_HOSTS = ("blerp.com",)
+
+
+def is_blerp_url(text: str) -> bool:
+    """Whether `text` is an http(s) URL whose host really is Blerp.
+
+    Parsed rather than substring-matched: "blerp.com" can appear in a path or
+    query of someone else's URL, and "blerp.com.attacker.tld" starts with it.
+    """
+    try:
+        parsed = urlparse((text or "").strip())
+    except ValueError:
+        return False
+    if parsed.scheme.lower() not in ("http", "https"):
+        return False
+    host = (parsed.hostname or "").lower().rstrip(".")
+    return any(host == h or host.endswith("." + h) for h in BLERP_HOSTS)
 
 
 @dataclass
@@ -41,18 +60,41 @@ def _resolve_ref(apollo: dict, node):
 
 def fetch_bite_media(url: str) -> BiteMedia:
     """Fetches a soundbite page and extracts its audio/image URLs and title."""
+    # Only Blerp pages are scrapeable, and only Blerp should be fetched: the URL
+    # comes from whatever the user pasted, and OBJECTID_RE matches any 24-hex run
+    # in any string, so without this a link to another host would be requested.
+    if not is_blerp_url(url):
+        raise BlerpError(
+            f"Not a blerp.com link: {url[:120]}\n"
+            "Paste a soundbite URL such as https://blerp.com/soundbites/<id>")
     bite_id = parse_bite_id(url)
     html = http_get(url).decode("utf-8", "replace")
 
     m = NEXT_DATA_RE.search(html)
     if not m:
         raise BlerpError("__NEXT_DATA__ not found on the page (the site structure may have changed).")
-    data = json.loads(m.group(1))
+    try:
+        data = json.loads(m.group(1))
+    except ValueError as e:
+        raise BlerpError(f"The page's embedded data could not be read ({e}).")
+    if not isinstance(data, dict):
+        raise BlerpError("The page's embedded data has an unexpected shape.")
 
     apollo = data.get("props", {}).get("pageProps", {}).get("initialApolloState", {})
+    if not isinstance(apollo, dict):
+        raise BlerpError("The page's embedded data has an unexpected shape.")
     bite = apollo.get(f"Bite:{bite_id}")
-    if bite is None:  # ID mismatch: fall back to the first Bite-typed object
-        bite = next((v for k, v in apollo.items() if k.startswith("Bite:")), None)
+    if bite is None:
+        # The requested ID isn't in the page. The cache also holds related and
+        # recommended bites, so picking "the first one" would hand back someone
+        # else's audio and report success - only accept it when it's unambiguous.
+        candidates = [v for k, v in apollo.items() if k.startswith("Bite:")]
+        if len(candidates) != 1:
+            raise BlerpError(
+                "That soundbite is not on the page (it may have been removed or "
+                "made private). Refusing to guess which of the "
+                f"{len(candidates)} other blerps on it you meant.")
+        bite = candidates[0]
     if bite is None:
         raise BlerpError("No Bite object in the Apollo state.")
 

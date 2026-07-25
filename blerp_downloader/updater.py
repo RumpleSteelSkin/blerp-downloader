@@ -7,6 +7,7 @@ Setup installer and letting it replace the files and relaunch the app.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -29,13 +30,24 @@ RELEASES_PAGE_URL = f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}/releases"
 
 # Only an Inno Setup installer is ever launched. A bare BlerpDownloader.exe asset
 # must never match, or it would be executed as if it were an installer.
-INSTALLER_RE = re.compile(r"^BlerpDownloader-Setup-.+\.exe$", re.IGNORECASE)
+# The body excludes path separators deliberately: `.` matches a backslash, so a
+# release asset named "BlerpDownloader-Setup-\..\..\Startup\x.exe" would both
+# match and, if its name were ever used to build a path, escape the download
+# directory. download_installer() also names the file itself rather than trusting
+# this, but the pattern should not admit such a name in the first place.
+INSTALLER_RE = re.compile(r"^BlerpDownloader-Setup-[^\\/:*?\"<>|]+\.exe$", re.IGNORECASE)
+
+CHECKSUM_ASSET = "SHA256SUMS.txt"
 
 APP_DIR_NAME = "BlerpDownloader"
 _API_TIMEOUT = 15.0
 _DOWNLOAD_TIMEOUT = 60.0
 _CHUNK = 262144  # 256 KiB
 _MAX_API_BYTES = 2 * 1024 * 1024
+_MAX_CHECKSUM_BYTES = 64 * 1024
+# An installer is ~35MB; this only exists so a hostile or broken server can't
+# stream forever and fill the disk.
+_MAX_INSTALLER_BYTES = 500 * 1024 * 1024
 _MAX_TAG_LEN = 64
 _STALE_DOWNLOAD_DAYS = 7
 
@@ -54,11 +66,22 @@ class UpdateState(str, Enum):
 class UpdateInfo:
     version: str          # "1.2.0"
     tag: str              # "v1.2.0"
-    asset_name: str
+    asset_name: str       # for display only - never used to build a path
     asset_url: str
     asset_size: int
     html_url: str
     notes: str
+    checksum_url: str = ""   # SHA256SUMS.txt for this release, if published
+
+    @property
+    def local_name(self) -> str:
+        """The filename we save under.
+
+        Built from the version we parsed, never from the server-supplied asset
+        name: that name is attacker-influenced and would otherwise be joined
+        onto a local directory.
+        """
+        return f"BlerpDownloader-Setup-{self.version}.exe"
 
 
 @dataclass(frozen=True)
@@ -220,10 +243,15 @@ def check_for_update(current_version: str, *, timeout: float = _API_TIMEOUT,
                      api_url: str | None = None) -> UpdateStatus:
     """Queries GitHub for the latest release and classifies the result.
 
-    api_url (or the BLERP_UPDATE_API_URL env var) overrides the endpoint for
-    testing against a local fixture server.
+    api_url overrides the endpoint for testing against a local fixture server.
+    BLERP_UPDATE_API_URL does the same, but only when running from source: in a
+    shipped build it is ignored, because the environment is writable by anything
+    running as the user, and redirecting the update feed is enough to get an
+    arbitrary installer launched through an otherwise genuine-looking prompt.
     """
-    url = api_url or os.environ.get("BLERP_UPDATE_API_URL") or API_LATEST_URL
+    url = api_url or API_LATEST_URL
+    if api_url is None and not is_frozen():
+        url = os.environ.get("BLERP_UPDATE_API_URL") or url
 
     data, failure = _fetch_latest(url, current_version, timeout)
     if failure is not None:
@@ -242,20 +270,35 @@ def check_for_update(current_version: str, *, timeout: float = _API_TIMEOUT,
                      "Open the Releases page to check manually."))
 
     if not is_newer(tag, current_version):
-        if is_newer(current_version, tag):
-            return UpdateStatus(
-                UpdateState.AHEAD, current_version, latest=latest,
-                message=(f"You are running {current_version}, which is newer than the latest "
-                         f"published release ({latest}). Nothing to update."))
-        return UpdateStatus(UpdateState.UP_TO_DATE, current_version, latest=latest,
-                            message=f"You are running the latest version ({current_version}).")
+        return _not_newer(current_version, tag, latest)
+    return _available(data, current_version, tag, latest)
 
-    asset = pick_installer_asset(data.get("assets") or [], latest)
+
+def _not_newer(current_version: str, tag: str, latest: str) -> UpdateStatus:
+    if is_newer(current_version, tag):
+        return UpdateStatus(
+            UpdateState.AHEAD, current_version, latest=latest,
+            message=(f"You are running {current_version}, which is newer than the latest "
+                     f"published release ({latest}). Nothing to update."))
+    return UpdateStatus(UpdateState.UP_TO_DATE, current_version, latest=latest,
+                        message=f"You are running the latest version ({current_version}).")
+
+
+def _available(data: dict, current_version: str, tag: str, latest: str) -> UpdateStatus:
+    """Builds the AVAILABLE status, or an ERROR if the release isn't usable yet."""
+    assets = data.get("assets") or []
+    asset = pick_installer_asset(assets, latest)
     if not asset:
         return UpdateStatus(
             UpdateState.ERROR, current_version, latest=latest,
             message=(f"Release {latest} has no Windows installer attached yet. "
                      "It may still be uploading - try again in a minute."))
+
+    checksums = next(
+        (a for a in assets
+         if (a.get("name") or "").lower() == CHECKSUM_ASSET.lower()
+         and a.get("state") == "uploaded"),
+        None)
 
     info = UpdateInfo(
         version=latest,
@@ -265,6 +308,7 @@ def check_for_update(current_version: str, *, timeout: float = _API_TIMEOUT,
         asset_size=int(asset.get("size") or 0),
         html_url=data.get("html_url") or RELEASES_PAGE_URL,
         notes=(data.get("body") or "").strip()[:600],
+        checksum_url=(checksums or {}).get("browser_download_url") or "",
     )
     if not info.asset_url:
         return UpdateStatus(UpdateState.ERROR, current_version, latest=latest,
@@ -277,8 +321,13 @@ def check_for_update(current_version: str, *, timeout: float = _API_TIMEOUT,
 #  Download + handoff
 # --------------------------------------------------------------------------- #
 def _stream_to(req: Request, part: Path, expected_size: int,
-               on_progress, cancel: threading.Event | None) -> int:
-    """Streams the response body into `part` and returns the byte count."""
+               on_progress, cancel: threading.Event | None) -> tuple[int, str]:
+    """Streams the response body into `part`.
+
+    Returns (bytes written, sha256 hex). The digest is computed as we go so the
+    file is never read a second time.
+    """
+    digest = hashlib.sha256()
     try:
         with urlopen(req, timeout=_DOWNLOAD_TIMEOUT) as resp:
             total = int(resp.headers.get("Content-Length") or expected_size or 0)
@@ -291,9 +340,12 @@ def _stream_to(req: Request, part: Path, expected_size: int,
                         raise UpdateError("Update download cancelled.")
                     chunk = resp.read(_CHUNK)
                     if not chunk:
-                        return got
+                        return got, digest.hexdigest()
                     f.write(chunk)
+                    digest.update(chunk)
                     got += len(chunk)
+                    if got > _MAX_INSTALLER_BYTES:
+                        raise UpdateError("The download is unreasonably large; stopping.")
                     if on_progress:
                         on_progress(got, total)
     except HTTPError as e:
@@ -304,16 +356,53 @@ def _stream_to(req: Request, part: Path, expected_size: int,
         raise UpdateError(f"Download failed: {e}")
 
 
+def _expected_sha256(info: UpdateInfo, current_version: str) -> str:
+    """Fetches the release's SHA256SUMS.txt and returns the digest for our asset.
+
+    Raises UpdateError rather than returning empty: an update that cannot be
+    verified must not be installed.
+    """
+    if not info.checksum_url:
+        raise UpdateError(
+            f"Release {info.version} publishes no {CHECKSUM_ASSET}, so the download "
+            "cannot be verified. Install it manually from the releases page if you "
+            "trust it.")
+    req = Request(info.checksum_url, headers={
+        "User-Agent": _user_agent(current_version or info.version),
+        "Accept": "text/plain",
+    })
+    try:
+        with urlopen(req, timeout=_API_TIMEOUT) as resp:
+            body = resp.read(_MAX_CHECKSUM_BYTES).decode("utf-8", "replace")
+    except OSError as e:   # covers URLError and HTTPError
+        raise UpdateError(f"Could not fetch {CHECKSUM_ASSET}: {e}")
+
+    # Format is "<hex>  <filename>", one per line. Matched on local_name (derived
+    # from the version) rather than the server-supplied asset name, so nothing
+    # here depends on a value the response controls.
+    wanted = info.local_name.lower()
+    for line in body.splitlines():
+        parts = line.split()
+        if len(parts) >= 2 and parts[1].lstrip("*").lower() == wanted:
+            return parts[0].lower()
+    raise UpdateError(f"{CHECKSUM_ASSET} has no entry for {info.local_name}.")
+
+
 def download_installer(info: UpdateInfo, *, current_version: str = "",
                        on_progress=None, cancel: threading.Event | None = None) -> Path:
-    """Streams the installer to disk and returns its path.
+    """Streams the installer to disk, verifies it, and returns its path.
 
-    Written to a .part file and renamed only after the size is verified, so a
-    truncated or cancelled download can never be launched.
+    Written to a .part file and renamed only once the SHA-256 matches the digest
+    published with the release, so a tampered, truncated or cancelled download is
+    never left somewhere it could be launched from.
     """
+    expected = _expected_sha256(info, current_version)
+
     dest_dir = updates_dir()
     dest_dir.mkdir(parents=True, exist_ok=True)
-    final = dest_dir / info.asset_name
+    # info.local_name, not info.asset_name: the server-supplied name must never
+    # be joined onto a local path.
+    final = dest_dir / info.local_name
     part = final.with_suffix(final.suffix + ".part")
 
     req = Request(info.asset_url, headers={
@@ -321,7 +410,14 @@ def download_installer(info: UpdateInfo, *, current_version: str = "",
         "Accept": "application/octet-stream",
     })
     try:
-        got = _stream_to(req, part, info.asset_size, on_progress, cancel)
+        got, actual = _stream_to(req, part, info.asset_size, on_progress, cancel)
+        # Checked before the size, and unconditionally: asset_size is 0 when the
+        # API omits it, and a falsy-guarded size check would then verify nothing.
+        if actual != expected:
+            raise UpdateError(
+                "The downloaded installer does not match the checksum published "
+                "with the release, so it was discarded. Try again, and if it keeps "
+                "happening download it manually from the releases page.")
         if info.asset_size and got != info.asset_size:
             raise UpdateError("The downloaded installer is incomplete. Please try again.")
     except Exception:
