@@ -24,7 +24,8 @@ Bir Blerp soundbite'ının animasyonlu görselini (WebP) ve sesini (MP3) indirip
 - **Animasyonlu WebP -> MP4:** Görsel ile sesi tek bir MP4 dosyasında birleştirir.
 - **Gerçek kare süreleri:** Animasyonun her karesinin süresini WebP'nin ham ANMF chunk'larından okuyarak hızı bozmadan korur.
 - **"Ses kral" senkronu:** Nihai videonun uzunluğu sesin uzunluğuna eşitlenir; animasyon kısaysa döngülenir, uzunsa kesilir, ses asla kesilmez.
-- **Toplu modda resume:** Var olan dosyalar atlanır; yarıda kalan bir indirme baştan başlamadan kaldığı yerden sürer.
+- **Durdur ve sonra devam et:** Toplu indirme istediğin anda durdurulup sonra kaldığı yerden sürdürülebilir — uygulamayı kapatsan bile, profili yeniden taramadan. Bkz. [Durdurma ve devam etme](#durdurma-ve-devam-etme).
+- **Cache bakımı:** İndirilen güncellemelerin ve yarım kalmış geçici dosyaların kapladığı yeri geri kazanmak için bir buton (ve `--clear-cache`).
 - **Kimlik doğrulama gerektirmez:** Toplu listeleme, Blerp'in açık GraphQL API'sini kullanır.
 - **Kalıcı ayarlar:** Çıktı klasörü, üzerine yazma, toplu limit ve özel bir FFmpeg konumu çalıştırmalar arasında hatırlanır — bkz. [Ayarlar](#ayarlar).
 - **Panoyu izleme (opsiyonel, GUI):** Kopyalanan bir Blerp soundbite linkini algılar; ya indirmeden önce sorar ya da otomatik indirir.
@@ -134,6 +135,9 @@ Tek kutuya bir soundbite URL'si **ya da** kullanıcı adı / profil URL'si yapı
 | `--limit N` | Toplu modda yalnızca ilk N blerp (`bites[:N]`) |
 | `--delay SN` | Toplu modda blerp'ler arası bekleme (saniye, varsayılan: `0.3`) |
 | `--overwrite` / `--no-overwrite` | Toplu modda üzerine yaz / kaydedilmiş varsayılanı geçersiz kılıp atla |
+| `--resume` / `--no-resume` | Toplu modda kaydedilmiş profil listesini kullan / yeniden tara (varsayılan: açık) |
+| `--clear-cache` | İndirilen güncellemeleri, geçici dosyaları ve kaydedilmiş yarım işi sil ve çık |
+| `--reset-settings` | Tüm ayarları varsayılana döndür ve çık |
 
 > `--limit`, `--delay` ve `--overwrite` yalnızca toplu modda etkilidir. `-o/--out`, tek modda dosya, toplu modda klasör olarak yorumlanır. `-o`, `--limit`, `--delay` ve `--overwrite`'ın hepsi varsa [Ayarlar](#ayarlar)'da kayıtlı değeri, yoksa yukarıdaki varsayılanları kullanır.
 
@@ -164,6 +168,37 @@ git push --tags
 ```
 
 Workflow, tag ile `__version__` uyuşuyor mu diye doğrular (yükseltmeyi unuttuysanız build'i sesli şekilde patlatır), her iki çalıştırılabiliri derler, installer'ı üretir ve release'i SHA-256 checksum dosyasıyla birlikte yayınlar. İçinde tire olan bir tag (`v1.1.0-rc.1`) **prerelease** olarak yayınlanır; uygulama içi güncelleyici bunları görmez — pipeline'ı kullanıcılara göndermeden test etmek için kullanışlıdır.
+
+## Durdurma ve devam etme
+
+Toplu indirme sırasında **Stop**'a bastığında o an işlediği blerp'i bitirir ve durur. Sonra **Download**'a tekrar bas — aynı kullanıcı adıyla — kaldığı yerden devam eder. Bu, uygulamayı kapattıktan sonra da, çökme sonrasında da çalışır.
+
+Hızlı olmasının sebebi, sadece dosyaların değil **taramanın** da hatırlanması. Bir profili taramak arka arkaya çok sayıda istek demek (API sayfa başına 12 blerp döndürüyor), yani büyük bir profilde dakikalar; devam ederken önceki çalışmanın listesi yeniden kullanılıyor ve indirme anında başlıyor. Yarıda kesilen bir tarama bile saklanıyor, o ana kadar bulunanlar çöpe gitmiyor.
+
+Listeyi yeniden kullanmak, baştan taramaktan aynı zamanda daha doğru: yeni bir tarama sıralamayı değiştirir, yani `--limit 50` bambaşka bir 50 blerp'i kapsar; sitede adı değişmiş bir blerp de yeni adıyla ikinci kez inerdi.
+
+```bash
+python blerp_to_mp4.py --user someone          # yarım kalmış bir iş varsa devam eder
+python blerp_to_mp4.py --user someone --no-resume   # yok say ve yeniden tara
+```
+
+Kaydedilen iş, indirme sonuna ulaştığında ve 30 gün sonra unutulur. **`--overwrite` çalışmaları asla devam ettirilmez**: zaten indirilmiş olanı bilerek yok saydıkları için ne kadar ilerlediklerini anlamanın bir yolu kalmaz — her zaman ilk blerp'ten başlarlar.
+
+İndirilmiş dosyalar adlarından tanınır, hiçbir şey iki kez indirilmez. Yarım yazılmış bir dosya asla tamamlanmış sanılmaz: her MP4 hedefinin yanında oluşturulur ve ancak bittiğinde yerine taşınır.
+
+## Cache
+
+**Clear cache…** (ya da `--clear-cache`) şunları siler:
+
+- indirilen güncelleme installer'ları (her biri 13-35 MB)
+- yarıda kesilen indirmelerden kalan geçici klasörler
+- varsa kaydedilmiş yarım iş — onay penceresinde açıkça belirtilir, çünkü kaybolması bir sonraki çalışmanın yeniden taraması demek
+
+İsteğe bağlı olarak çıktı klasöründeki yarım yazılmış `.part` dosyalarını da siler. Bu varsayılan olarak kapalı: zararsızlar ve uygulamanın senin seçtiğin bir klasörün içinde bir şey sildiği tek yer orası.
+
+Kullanımda olan hiçbir şeye dokunulmaz — indirilmekte olan bir installer, devam eden bir indirmeye ait geçici klasör, ikinci bir uygulama kopyasındakiler dahil — tespit edilip atlanır.
+
+**Reset settings…** (ya da `--reset-settings`) bilerek ayrı tutuldu: çıktı klasörü, FFmpeg klasörü, limit, üzerine yazma ve pano seçeneklerini varsayılana döndürür. İndirdiğin dosyalara ve pencere boyutuna dokunmaz.
 
 ## Ayarlar
 

@@ -4,17 +4,20 @@ audio (MP3), then combines them with FFmpeg into an MP4."""
 from __future__ import annotations
 
 __author__ = "RumpleSteelSkin"
-__version__ = "1.0.5"
+__version__ = "1.0.6"
 APP_NAME = "Blerp -> MP4 Downloader"
 SIGNATURE = f"By {__author__}"
 
 from .errors import BlerpError, UpdateError
 from .ffmpeg_utils import (FFMPEG_DOWNLOAD_URL, FFMPEG_HELP, has_ffmpeg,
                            hidden_process_kwargs)
+from .jobs import Job, clear_job, load_job, save_job
 from .listing import list_user_bites, parse_username
-from .pipeline import process_bite, sanitize
+from .maintenance import clear_cache, output_dirs
+from .pipeline import (FAILURE_STREAK_LIMIT, bulk_out_path, process_bite,
+                       sanitize)
 from .scraping import OBJECTID_RE, fetch_bite_media, is_blerp_url
-from .settings import Settings, load_settings, save_settings
+from .settings import Settings, load_settings, reset_settings, save_settings
 from .updater import (RELEASES_PAGE_URL, UpdateInfo, UpdateState, UpdateStatus,
                       check_for_update, cleanup_old_downloads, download_installer,
                       is_frozen, launch_installer)
@@ -24,8 +27,11 @@ __all__ = [
     "BlerpError", "UpdateError", "has_ffmpeg", "hidden_process_kwargs",
     "FFMPEG_HELP", "FFMPEG_DOWNLOAD_URL",
     "parse_username", "OBJECTID_RE", "fetch_bite_media", "is_blerp_url",
-    "list_user_bites", "process_bite", "sanitize",
-    "Settings", "load_settings", "save_settings",
+    "list_user_bites", "process_bite", "sanitize", "bulk_out_path",
+    "FAILURE_STREAK_LIMIT",
+    "Job", "load_job", "save_job", "clear_job",
+    "clear_cache", "output_dirs",
+    "Settings", "load_settings", "save_settings", "reset_settings",
     "RELEASES_PAGE_URL", "UpdateInfo", "UpdateState", "UpdateStatus",
     "check_for_update", "cleanup_old_downloads", "download_installer",
     "is_frozen", "launch_installer",

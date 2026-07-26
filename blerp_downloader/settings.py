@@ -106,8 +106,25 @@ def load_settings() -> Settings:
     return settings
 
 
+def reset_settings() -> Settings:
+    """Restores every setting to its default and returns them.
+
+    Callers with a UI must also push these back into their widgets: anything
+    that rebuilds Settings from widget state on exit would otherwise write the
+    old values straight back over this.
+    """
+    defaults = Settings()
+    save_settings(defaults)
+    return defaults
+
+
 def save_settings(settings: Settings) -> None:
-    """Overwrites the settings file with the given values."""
+    """Overwrites the settings file with the given values.
+
+    Written to a temporary file and renamed over the original, so an interrupted
+    write can't leave a truncated file - which loads as "no [general] section"
+    and silently resets every setting.
+    """
     path = _settings_path()
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -124,5 +141,11 @@ def save_settings(settings: Settings) -> None:
         "clipboard_mode": settings.clipboard_mode,
         "theme": settings.theme,
     }
-    with path.open("w", encoding="utf-8") as f:
-        parser.write(f)
+    tmp = path.with_suffix(path.suffix + ".part")   # same directory: same volume
+    try:
+        with tmp.open("w", encoding="utf-8") as f:
+            parser.write(f)
+        tmp.replace(path)
+    except OSError:
+        tmp.unlink(missing_ok=True)
+        raise

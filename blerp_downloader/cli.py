@@ -7,12 +7,13 @@ import sys
 import time
 from pathlib import Path
 
-from . import APP_NAME, SIGNATURE, __version__, load_settings
+from . import APP_NAME, SIGNATURE, __version__, jobs, load_settings, maintenance
 from .errors import BlerpError
 from .ffmpeg_utils import FFMPEG_HELP, has_ffmpeg
 from .listing import list_user_bites, parse_username
-from .pipeline import process_bite, sanitize
+from .pipeline import FAILURE_STREAK_LIMIT, bulk_out_path, process_bite, sanitize
 from .scraping import fetch_bite_media
+from .settings import reset_settings
 
 # The Windows console (cp1252) doesn't have the ✓/✗/· symbols printed below;
 # reconfigure stdout/stderr to UTF-8 so it doesn't crash on them.
@@ -34,9 +35,21 @@ def run_single(url: str, out: Path | None) -> None:
     print(f"\n✓ Done -> {out.resolve()}")
 
 
-def run_bulk(username: str, out_dir: Path | None, *, limit: int | None,
-             delay: float, overwrite: bool) -> None:
-    """Downloads all of a user's blerps in sequence (skipping ones that already exist)."""
+def _resolve_listing(username: str, resume: bool) -> tuple[list, int, bool]:
+    """The profile listing, from the saved job if one fits. Returns
+    (bites, dropped, came_from_saved_job)."""
+    saved = jobs.load_job() if resume else None
+    if saved and saved.matches(username) and saved.is_usable():
+        # The scan is the slow part; reusing it is also more faithful, since a
+        # fresh one can reorder under --limit and rename files whose titles
+        # changed server-side.
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(saved.created_at))
+        print(f"Resuming saved listing for {username} "
+              f"({len(saved.bites)} blerps, scanned {when}). Use --no-resume to re-scan.")
+        if not saved.scan_complete:
+            print("  (that scan was interrupted, so it may not cover the whole profile)")
+        return saved.bites, saved.dropped, True
+
     print(f"Scanning user: {username}")
 
     def scanning(pages: int, found: int) -> None:
@@ -45,23 +58,15 @@ def run_bulk(username: str, out_dir: Path | None, *, limit: int | None,
 
     bites = list_user_bites(username, on_progress=scanning)
     print()
-    dropped = getattr(bites, "dropped", 0)
-    if limit:
-        bites = bites[:limit]
+    return bites, getattr(bites, "dropped", 0), False
 
-    out_dir = out_dir or Path(sanitize(username))
-    out_dir.mkdir(parents=True, exist_ok=True)
-    total = len(bites)
-    print(f"{total} blerps found -> {out_dir}/")
-    if dropped:
-        print(f"  ({dropped} skipped: no audio or image on the server)")
-    print()
 
-    ok = skip = fail = 0
+def _download_all(bites, out_dir: Path, total: int, overwrite: bool,
+                  delay: float) -> tuple[int, int, int, bool]:
+    """The download loop. Returns (ok, skipped, failed, ran_to_completion)."""
+    ok = skip = fail = streak = 0
     for i, media in enumerate(bites, 1):
-        # The filename includes the blerp ID: unique AND stable across runs (same blerp
-        # -> same name), which is what makes "skip existing" (resume) possible.
-        out_path = out_dir / f"{sanitize(media.title)}_{media.bite_id}.mp4"
+        out_path = bulk_out_path(out_dir, media)
         tag = f"[{i}/{total}]"
         if out_path.exists() and not overwrite:
             skip += 1
@@ -70,6 +75,7 @@ def run_bulk(username: str, out_dir: Path | None, *, limit: int | None,
         try:
             process_bite(media, out_path)
             ok += 1
+            streak = 0
             print(f"{tag} ✓ {out_path.name}")
         except KeyboardInterrupt:
             raise
@@ -78,10 +84,64 @@ def run_bulk(username: str, out_dir: Path | None, *, limit: int | None,
             # KeyError and JSONDecodeError escape and abandon every remaining
             # bite; one bad blerp should cost one blerp.
             fail += 1
+            streak += 1
             print(f"{tag} ✗ ERROR ({media.title[:30]}): {e}")
+            if streak >= FAILURE_STREAK_LIMIT:
+                # Every remaining bite would fail the same way, each burning a
+                # 30s timeout. Better to stop than to grind through thousands.
+                print(f"\n{FAILURE_STREAK_LIMIT} blerps in a row failed. Stopping - "
+                      "the connection may be down, or the saved listing may be "
+                      "stale (re-run with --no-resume to re-scan).")
+                return ok, skip, fail, False
         time.sleep(delay)
+    return ok, skip, fail, True
+
+
+def run_bulk(username: str, out_dir: Path | None, *, limit: int | None,
+             delay: float, overwrite: bool, resume: bool = True) -> None:
+    """Downloads all of a user's blerps in sequence (skipping ones that already exist)."""
+    bites, dropped, from_saved = _resolve_listing(username, resume)
+
+    out_dir = out_dir or Path(sanitize(username))
+    out_dir.mkdir(parents=True, exist_ok=True)   # before recording the job
+
+    if not from_saved:
+        jobs.save_job(jobs.Job(
+            username=username, bites=list(bites), dropped=dropped, limit=limit,
+            overwrite=overwrite, out_dir=str(out_dir.resolve()),
+            created_at=time.time(), app_version=__version__))
+
+    if limit:
+        bites = bites[:limit]
+    total = len(bites)
+    print(f"{total} blerps found -> {out_dir}/")
+    if dropped:
+        print(f"  ({dropped} skipped: no audio or image on the server)")
+    print()
+
+    ok, skip, fail, completed = _download_all(bites, out_dir, total, overwrite, delay)
+
+    if completed:
+        # Reached the end without stopping early: nothing left to come back to.
+        # Keyed on that rather than "nothing remaining", because a bite that
+        # keeps failing writes no file and would otherwise make the job immortal.
+        jobs.clear_job()
 
     print(f"\nDone: {ok} downloaded, {skip} skipped, {fail} failed -> {out_dir.resolve()}")
+
+
+def _do_clear_cache() -> None:
+    """--clear-cache. The GUI offers the same thing behind a confirmation."""
+    saved = jobs.load_job()
+    if saved:
+        print(f"Forgetting the unfinished download for {saved.username} "
+              f"({len(saved.bites)} blerps).")
+    result = maintenance.clear_cache()
+    if result.details:
+        print("Removed: " + ", ".join(result.details))
+    print(f"Freed {result.freed_mb:.1f} MB.")
+    if result.in_use:
+        print(f"{result.in_use} item(s) were in use and left alone.")
 
 
 def main() -> None:
@@ -109,7 +169,25 @@ def main() -> None:
                     help=f"Bulk mode: wait between blerps (s, default: {settings.bulk_delay})")
     ap.add_argument("--overwrite", action=argparse.BooleanOptionalAction, default=settings.overwrite,
                     help="Bulk mode: overwrite existing files (default: skip, or as saved in settings)")
+    ap.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True,
+                    help="Bulk mode: reuse the saved profile listing instead of "
+                         "re-scanning (default: on)")
+    ap.add_argument("--clear-cache", action="store_true",
+                    help="Delete downloaded update installers, leftover temp files "
+                         "and the saved unfinished download, then exit")
+    ap.add_argument("--reset-settings", action="store_true",
+                    help="Restore every setting to its default, then exit")
     args = ap.parse_args()
+
+    # Before the FFmpeg gate: tidying up and resetting settings have nothing to do
+    # with whether FFmpeg is installed, and both must work without a target.
+    if args.clear_cache:
+        _do_clear_cache()
+        return
+    if args.reset_settings:
+        reset_settings()
+        print("Settings restored to defaults.")
+        return
 
     if not has_ffmpeg():
         print(FFMPEG_HELP, file=sys.stderr)
@@ -118,8 +196,8 @@ def main() -> None:
     username = args.user or parse_username(args.target or "")
     try:
         if username:
-            run_bulk(username, args.out, limit=args.limit,
-                     delay=args.delay, overwrite=args.overwrite)
+            run_bulk(username, args.out, limit=args.limit, delay=args.delay,
+                     overwrite=args.overwrite, resume=args.resume)
         elif args.target:
             run_single(args.target, args.out)
         else:

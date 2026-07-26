@@ -242,13 +242,13 @@ class BlerpGUI:
     def _build_actions(self, frm: ttk.Frame, row: int) -> int:
         ttk.Separator(frm, orient="horizontal").grid(row=row, column=0, sticky="ew", pady=(16, 12))
 
+        # What the user came here to do.
         btns = ttk.Frame(frm)
         btns.grid(row=row + 1, column=0, sticky="ew")
         self.dl_btn = ttk.Button(btns, text="Download", command=self._start,
                                  style="Accent.TButton")
         self.dl_btn.pack(side="left")
-        self.stop_btn = ttk.Button(btns, text="Stop", command=self.cancel.set,
-                                   state="disabled")
+        self.stop_btn = ttk.Button(btns, text="Stop", command=self._stop, state="disabled")
         self.stop_btn.pack(side="left", padx=8)
         self.upd_btn = ttk.Button(btns, text="Check for Updates", command=self._check_updates)
         self.upd_btn.pack(side="right")
@@ -257,7 +257,22 @@ class BlerpGUI:
         self.prog.grid(row=row + 2, column=0, sticky="ew", pady=(14, 6))
         self.status = ttk.Label(frm, text="Ready.", style="Status.TLabel")
         self.status.grid(row=row + 3, column=0, sticky="w")
-        return row + 4
+
+        # Housekeeping, kept off the main row: five buttons abreast overflowed
+        # the minimum window width, and these aren't part of the main flow.
+        # The ellipsis matches Choose…/Browse… above - both open a dialog.
+        maint = ttk.Frame(frm)
+        maint.grid(row=row + 4, column=0, sticky="ew", pady=(10, 0))
+        self.cache_btn = ttk.Button(maint, text="Clear cache…", command=self._clear_cache)
+        self.cache_btn.pack(side="left")
+        self.reset_btn = ttk.Button(maint, text="Reset settings…", command=self._reset_settings)
+        self.reset_btn.pack(side="left", padx=8)
+
+        # Everything that must be unavailable while work is running. Maintenance
+        # is in here because clearing the cache mid-run would delete the job file
+        # of the download in progress, and it is only ever written once.
+        self._busy_buttons = (self.dl_btn, self.upd_btn, self.cache_btn, self.reset_btn)
+        return row + 5
 
     def _build_log(self, frm: ttk.Frame, row: int) -> None:
         # tk.Text + ttk.Scrollbar rather than ScrolledText: that one is built
@@ -295,6 +310,30 @@ class BlerpGUI:
             )
         except tk.TclError:
             pass
+
+    def _set_busy(self, busy: bool) -> None:
+        """Flips the whole control set between idle and working.
+
+        One place rather than the enable/disable pairs that were repeated at
+        every call site - which is also what keeps the maintenance buttons from
+        being clickable mid-run.
+        """
+        for b in self._busy_buttons:
+            b.configure(state="disabled" if busy else "normal")
+        self.stop_btn.configure(state="normal" if busy else "disabled")
+
+    def _stop(self) -> None:
+        """Stop, with an honest account of when it will take effect.
+
+        A download in flight can't be interrupted - the current blerp has to
+        finish downloading and encoding first, which can take a while. Without
+        this the button looked broken for minutes.
+        """
+        self.cancel.set()
+        self.stop_btn.configure(state="disabled")
+        self.status.configure(text="Stopping after the current blerp…")
+        self._log("⏹ Stopping — the blerp in progress has to finish first. "
+                  "Press Download afterwards to carry on where this left off.")
 
     def _pick_dir(self) -> None:
         d = filedialog.askdirectory(title="Choose output folder")
@@ -346,6 +385,10 @@ class BlerpGUI:
         # Catches preference changes (window size, clipboard-watch toggle, ...) even
         # if the user never clicks Download this session.
         self._save_current_settings(self._current_limit())
+        # Not a join - that could block the UI for minutes. This just stops the
+        # worker starting another ffmpeg as the interpreter tears down; an
+        # orphaned one holds a .part open and breaks the next run.
+        self.cancel.set()
         self._closing = True
         self.root.destroy()
 
@@ -369,8 +412,8 @@ class BlerpGUI:
         """Installs ffmpeg via winget in the background (the window doesn't freeze)."""
         if self.worker and self.worker.is_alive():
             return
-        self.dl_btn.configure(state="disabled")
-        self.upd_btn.configure(state="disabled")
+        self._set_busy(True)
+        self.stop_btn.configure(state="disabled")   # winget install can't be cancelled
         self.status.configure(text="Installing FFmpeg…")
         self.worker = threading.Thread(target=self._winget_ffmpeg, daemon=True)
         self.worker.start()
@@ -415,8 +458,8 @@ class BlerpGUI:
                 webbrowser.open(core.RELEASES_PAGE_URL)
             return
 
-        self.dl_btn.configure(state="disabled")
-        self.upd_btn.configure(state="disabled")
+        self._set_busy(True)
+        self.stop_btn.configure(state="disabled")   # the check is quick
         self.status.configure(text="Checking for updates…")
         self.worker = threading.Thread(target=self._update_check_worker, daemon=True)
         self.worker.start()
@@ -452,9 +495,7 @@ class BlerpGUI:
         if self.worker and self.worker.is_alive():
             return
         self.cancel.clear()
-        self.dl_btn.configure(state="disabled")
-        self.upd_btn.configure(state="disabled")
-        self.stop_btn.configure(state="normal")
+        self._set_busy(True)
         self.prog.configure(value=0)
         self.worker = threading.Thread(target=self._update_download_worker,
                                        args=(info,), daemon=True)
@@ -494,6 +535,9 @@ class BlerpGUI:
 
         # Save settings BEFORE launching so the INI write can't race process teardown.
         self._save_current_settings(self._current_limit())
+        # An ffmpeg still running in our process tree fights Restart Manager and
+        # can make the installer roll the whole update back.
+        self.cancel.set()
         try:
             core.launch_installer(path)
         except Exception as e:
@@ -507,6 +551,64 @@ class BlerpGUI:
             return
         self._closing = True
         self.root.destroy()
+
+    # ------------------------------------------------------------------ #
+    #  Maintenance (main thread; disabled while a download is running)
+    # ------------------------------------------------------------------ #
+    def _clear_cache(self) -> None:
+        if self.worker and self.worker.is_alive():
+            return
+        job = core.load_job()
+        lines = ["This will delete:",
+                 "  • downloaded update installers",
+                 "  • leftover temporary files from interrupted downloads"]
+        if job:
+            # Never silent: losing this means the next bulk run re-scans the
+            # whole profile.
+            lines.append(f"  • the unfinished download for {job.username} "
+                         f"({len(job.bites)} blerps)")
+        lines.append("\nYour settings and your downloaded MP4s are not touched.")
+        lines.append("\nAlso remove half-written .part files from your output folder?")
+
+        include = messagebox.askyesnocancel("Clear cache", "\n".join(lines))
+        if include is None:
+            return
+        result = core.clear_cache(include_outputs=bool(include),
+                                 output_dirs_=core.output_dirs(self.out.get().strip()))
+        summary = (f"Freed {result.freed_mb:.1f} MB"
+                   + (" — " + ", ".join(result.details) if result.details else ""))
+        if result.in_use:
+            summary += f" ({result.in_use} item(s) in use, left alone)"
+        self._log("🧹 " + summary)
+        self.status.configure(text=summary)
+
+    def _reset_settings(self) -> None:
+        if self.worker and self.worker.is_alive():
+            return
+        if not messagebox.askyesno(
+            "Reset settings",
+            "Restore every setting to its default?\n\n"
+            "Output folder, FFmpeg folder, limit, overwrite and the clipboard "
+            "options will be cleared. The window size and your downloaded files "
+            "are left alone."):
+            return
+
+        defaults = core.reset_settings()
+        # Writing the file is not enough: closing the window rebuilds the
+        # settings from these widgets, which would put the old values straight
+        # back. The reset has to reach the widgets too.
+        keep_w, keep_h = self.settings.window_width, self.settings.window_height
+        self.settings = core.Settings(**{**vars(defaults),
+                                         "window_width": keep_w, "window_height": keep_h})
+        self.out.delete(0, "end")
+        self.ffmpeg_dir.delete(0, "end")
+        self.limit.delete(0, "end")
+        self.overwrite.set(defaults.overwrite)
+        self.watch_clipboard.set(defaults.clipboard_watch)
+        self.auto_download.set(defaults.clipboard_mode == "auto")
+        self._save_current_settings(None)
+        self._log("↺ Settings restored to defaults.")
+        self.status.configure(text="Settings restored to defaults.")
 
     # ------------------------------------------------------------------ #
     #  Start / background work (never touches GUI widgets - queue only)
@@ -532,18 +634,33 @@ class BlerpGUI:
         # so a plain preference change like a resize is captured even without a run).
         self._save_current_settings(limit)
 
+        # Decided here, on the main thread: the worker must never open a dialog,
+        # and this is where the mode is cheap to work out.
+        saved = self._resumable_job(target, self.overwrite.get())
+
         self.cancel.clear()
-        self.dl_btn.configure(state="disabled")
-        self.upd_btn.configure(state="disabled")
-        self.stop_btn.configure(state="normal")
+        self._set_busy(True)
         self.prog.configure(value=0)
         self.worker = threading.Thread(
             target=self._run,
             args=(target, self.out.get().strip(), limit, self.overwrite.get(),
-                  self.settings.bulk_delay),
+                  self.settings.bulk_delay, saved),
             daemon=True,
         )
         self.worker.start()
+
+    def _resumable_job(self, target: str, overwrite: bool):
+        """The saved job for this target, if it can be carried on."""
+        mode, username = detect_mode(target)
+        if mode != "bulk" or overwrite:
+            # With overwrite on, what's already downloaded is deliberately
+            # ignored, so there is nothing to work out how far a previous run
+            # got - it would simply start again from the first blerp.
+            return None
+        job = core.load_job()
+        if job and job.matches(username) and job.is_usable():
+            return job
+        return None
 
     def _start_target(self, url: str) -> None:
         """Fills the target box with a clipboard-detected URL and starts as usual."""
@@ -552,11 +669,11 @@ class BlerpGUI:
         self._start()
 
     def _run(self, target: str, out_text: str, limit: int | None, overwrite: bool,
-              delay: float) -> None:
+              delay: float, saved=None) -> None:
         try:
             mode, value = detect_mode(target)
             if mode == "bulk":
-                self._run_bulk(value, out_text, limit, overwrite, delay)
+                self._run_bulk(value, out_text, limit, overwrite, delay, saved)
             else:
                 self._run_single(value, out_text)
         except core.BlerpError as e:
@@ -577,8 +694,21 @@ class BlerpGUI:
         self.q.put(("progress", 1))
         self.q.put(("done", f"✓ Done → {out_path.resolve()}"))
 
-    def _run_bulk(self, username: str, out_text: str, limit: int | None,
-                  overwrite: bool, delay: float) -> None:
+    def _scan_profile(self, username: str, out_dir: Path, limit: int | None,
+                      overwrite: bool, saved) -> tuple[list, int] | None:
+        """The profile listing, reusing a saved scan when one fits.
+
+        Returns None if the user stopped during the scan.
+        """
+        if saved is not None:
+            when = time.strftime("%Y-%m-%d %H:%M", time.localtime(saved.created_at))
+            self.q.put(("log", f"Carrying on where you left off — reusing the listing "
+                               f"of {len(saved.bites)} blerps scanned {when}."))
+            if not saved.scan_complete:
+                self.q.put(("log", "  (that scan was interrupted, so it may not cover "
+                                   "the whole profile)"))
+            return saved.bites, saved.dropped
+
         self.q.put(("log", f"Scanning user: {username}…"))
         self.q.put(("status", "Scanning profile…"))
 
@@ -589,14 +719,75 @@ class BlerpGUI:
                                   f"({pages} page{'s' if pages != 1 else ''})"))
 
         bites = core.list_user_bites(username, on_progress=scanning, cancel=self.cancel)
-        if self.cancel.is_set():
-            self.q.put(("done", "⏹ Stopped while scanning."))
-            return
         dropped = getattr(bites, "dropped", 0)
+        stopped = self.cancel.is_set()
+
+        # Keep even a partial scan. Paging a large profile takes minutes, and
+        # throwing that away because Stop was pressed is exactly what this
+        # feature exists to prevent. Resuming the paging itself isn't possible -
+        # there is no cursor, and the ordering shifts between requests.
+        if bites:
+            core.save_job(core.Job(
+                username=username, bites=list(bites), dropped=dropped, limit=limit,
+                overwrite=overwrite, out_dir=str(out_dir.resolve()),
+                scan_complete=not stopped, created_at=time.time(),
+                app_version=core.__version__))
+
+        if stopped:
+            kept = (f" The {len(bites)} blerps found so far were saved — press Download "
+                    "to continue with them." if bites else "")
+            self.q.put(("done", f"⏹ Stopped while scanning.{kept}"))
+            return None
+        return bites, dropped
+
+    def _download_all(self, bites, out_dir: Path, total: int, overwrite: bool,
+                      delay: float) -> tuple[int, int, int, bool]:
+        """The download loop. Returns (ok, skipped, failed, ran_to_completion)."""
+        ok = skip = fail = streak = 0
+        for i, m in enumerate(bites, 1):
+            if self.cancel.is_set():
+                self.q.put(("log", "⏹ Stopped. Press Download to carry on from here."))
+                return ok, skip, fail, False
+            out_path = core.bulk_out_path(out_dir, m)
+            self.q.put(("status", f"[{i}/{total}] {m.title[:45]}"))
+            if out_path.exists() and not overwrite:
+                skip += 1
+                self.q.put(("log", f"[{i}/{total}] - skipped: {out_path.name}"))
+                self.q.put(("progress", i))
+                continue
+            try:
+                core.process_bite(m, out_path)
+                ok += 1
+                streak = 0
+                self.q.put(("log", f"[{i}/{total}] ✓ {out_path.name}"))
+            except Exception as e:
+                fail += 1
+                streak += 1
+                self.q.put(("log", f"[{i}/{total}] ✗ ERROR: {e}"))
+                if streak >= core.FAILURE_STREAK_LIMIT:
+                    # Every remaining blerp would fail the same way, each burning
+                    # its own network timeout.
+                    self.q.put(("log",
+                                f"⏹ {core.FAILURE_STREAK_LIMIT} in a row failed — stopping. "
+                                "Check your connection, or clear the cache to re-scan "
+                                "the profile."))
+                    return ok, skip, fail, False
+            time.sleep(delay)
+            self.q.put(("progress", i))
+        return ok, skip, fail, True
+
+    def _run_bulk(self, username: str, out_text: str, limit: int | None,
+                  overwrite: bool, delay: float, saved=None) -> None:
+        out_dir = Path(out_text) if out_text else Path(core.sanitize(username))
+        out_dir.mkdir(parents=True, exist_ok=True)   # before any job is recorded
+
+        scanned = self._scan_profile(username, out_dir, limit, overwrite, saved)
+        if scanned is None:
+            return
+        bites, dropped = scanned
+
         if limit:
             bites = bites[:limit]
-        out_dir = Path(out_text) if out_text else Path(core.sanitize(username))
-        out_dir.mkdir(parents=True, exist_ok=True)
         total = len(bites)
         self.q.put(("total", total))
         self.q.put(("log", f"{total} blerps found → {out_dir}"))
@@ -605,26 +796,14 @@ class BlerpGUI:
             # with nothing to explain the difference.
             self.q.put(("log", f"  ({dropped} skipped: no audio or image on the server)"))
 
-        ok = skip = fail = 0
-        for i, m in enumerate(bites, 1):
-            if self.cancel.is_set():
-                self.q.put(("log", "⏹ Stopped by user."))
-                break
-            out_path = out_dir / f"{core.sanitize(m.title)}_{m.bite_id}.mp4"
-            self.q.put(("status", f"[{i}/{total}] {m.title[:45]}"))
-            if out_path.exists() and not overwrite:
-                skip += 1
-                self.q.put(("log", f"[{i}/{total}] - skipped: {out_path.name}"))
-            else:
-                try:
-                    core.process_bite(m, out_path)
-                    ok += 1
-                    self.q.put(("log", f"[{i}/{total}] ✓ {out_path.name}"))
-                except Exception as e:
-                    fail += 1
-                    self.q.put(("log", f"[{i}/{total}] ✗ ERROR: {e}"))
-                time.sleep(delay)
-            self.q.put(("progress", i))
+        ok, skip, fail, completed = self._download_all(bites, out_dir, total,
+                                                       overwrite, delay)
+
+        if completed:
+            # Reached the end under its own steam. Keyed on that rather than
+            # "nothing left", because a blerp that always fails writes no file
+            # and would otherwise keep the job alive forever.
+            core.clear_job()
         self.q.put(("done",
                     f"Done: {ok} downloaded, {skip} skipped, {fail} failed → {out_dir.resolve()}"))
 
@@ -686,9 +865,7 @@ class BlerpGUI:
             self._log(f"✗ ERROR: {val}")
             self.status.configure(text="An error occurred.")
         elif kind == "finish":
-            self.dl_btn.configure(state="normal")
-            self.upd_btn.configure(state="normal")
-            self.stop_btn.configure(state="disabled")
+            self._set_busy(False)
         elif kind == "update_result":
             self._on_update_result(val)
         elif kind == "update_downloaded":

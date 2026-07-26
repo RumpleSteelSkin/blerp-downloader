@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import re
 import tempfile
 from pathlib import Path
@@ -43,6 +44,23 @@ def sanitize(name: str) -> str:
     return name
 
 
+# Stopping after this many consecutive failures. Past that the cause is the
+# environment (offline, profile wiped, disk full), and every remaining bite would
+# burn its own network timeout proving the same thing.
+FAILURE_STREAK_LIMIT = 10
+
+
+def bulk_out_path(out_dir: Path, media: BiteMedia) -> Path:
+    """Where a bite lands in bulk mode.
+
+    The blerp ID is in the name so it is both unique and identical across runs,
+    which is what lets "already exists" stand in for "already downloaded".
+    Shared by both front-ends so the two can never disagree about which file a
+    bite corresponds to - a mismatch would silently re-download everything.
+    """
+    return out_dir / f"{sanitize(media.title)}_{media.bite_id}.mp4"
+
+
 def process_bite(media: BiteMedia, out_path: Path, *, verbose: bool = False) -> None:
     """
     Downloads and converts one BiteMedia (audio+image URLs already resolved) to MP4.
@@ -52,28 +70,57 @@ def process_bite(media: BiteMedia, out_path: Path, *, verbose: bool = False) -> 
         if verbose:
             print(msg)
 
-    with tempfile.TemporaryDirectory(prefix="blerp_") as td:
+    # blerpdl_, not blerp_: the cache cleaner matches on this prefix, and the
+    # shorter one isn't specific enough to this app to delete on sight.
+    with tempfile.TemporaryDirectory(prefix="blerpdl_") as td:
         tmp = Path(td)
-        webp_path, mp3_path = tmp / "image.webp", tmp / "audio.mp3"
+        # Held open for the life of the download. Windows won't let another
+        # process unlink an open file, so this is what tells the cache cleaner
+        # that this directory belongs to a run still in progress.
+        with _scratch_lock(tmp):
+            _convert(media, out_path, tmp, log)
 
-        log("[2/5] Downloading media...")
-        webp_path.write_bytes(http_get(media.image_url))
-        mp3_path.write_bytes(http_get(media.audio_url))
 
-        log("[3/5] Extracting WebP frames...")
-        frames, durations = extract_frames(webp_path, tmp / "frames")
-        log(f"      {len(frames)} frames, ~{sum(durations)/1000:.2f}s animation")
+@contextlib.contextmanager
+def _scratch_lock(tmp: Path):
+    """Marks a scratch directory as in use. Never fails the download."""
+    handle = None
+    try:
+        handle = (tmp / ".lock").open("w")
+    except OSError:
+        pass
+    try:
+        yield
+    finally:
+        if handle is not None:
+            try:
+                handle.close()
+            except OSError:
+                pass
 
-        log("[4/5] Building animation video...")
-        anim = tmp / "anim.mp4"
-        video_dur = build_animation_video(frames, durations, anim)
 
-        # Audio length: measure the real file first (ground truth), fall back to metadata.
-        audio_dur = probe_duration(mp3_path) or media.audio_duration_s or video_dur
-        plan = resolve_sync(video_dur, audio_dur)
-        log(f"      Plan: target={plan.target_duration:.2f}s "
-            f"loop_video={plan.loop_video} pad_audio={plan.pad_audio_with_silence}")
+def _convert(media: BiteMedia, out_path: Path, tmp: Path, log) -> None:
+    """Download, split, encode, mux - all inside the scratch directory `tmp`."""
+    webp_path, mp3_path = tmp / "image.webp", tmp / "audio.mp3"
 
-        log("[5/5] Combining audio + video...")
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        mux(anim, mp3_path, plan, out_path)
+    log("[2/5] Downloading media...")
+    webp_path.write_bytes(http_get(media.image_url))
+    mp3_path.write_bytes(http_get(media.audio_url))
+
+    log("[3/5] Extracting WebP frames...")
+    frames, durations = extract_frames(webp_path, tmp / "frames")
+    log(f"      {len(frames)} frames, ~{sum(durations)/1000:.2f}s animation")
+
+    log("[4/5] Building animation video...")
+    anim = tmp / "anim.mp4"
+    video_dur = build_animation_video(frames, durations, anim)
+
+    # Audio length: measure the real file first (ground truth), fall back to metadata.
+    audio_dur = probe_duration(mp3_path) or media.audio_duration_s or video_dur
+    plan = resolve_sync(video_dur, audio_dur)
+    log(f"      Plan: target={plan.target_duration:.2f}s "
+        f"loop_video={plan.loop_video} pad_audio={plan.pad_audio_with_silence}")
+
+    log("[5/5] Combining audio + video...")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    mux(anim, mp3_path, plan, out_path)

@@ -24,7 +24,8 @@ Downloads a Blerp soundbite's animated image (WebP) and its audio (MP3), then co
 - **Animated WebP -> MP4:** merges the image and audio into a single MP4 file.
 - **True frame durations:** reads each animation frame's duration directly from the WebP's raw ANMF chunks, preserving the original speed.
 - **"Audio is king" sync:** the final video's length is matched to the audio length; if the animation is shorter it is looped, if longer it is cut, and the audio is never cut.
-- **Resume in bulk mode:** existing files are skipped, so an interrupted download continues where it left off instead of starting over.
+- **Stop and pick up again:** a bulk download can be stopped at any point and carried on later — even after closing the app — without re-scanning the profile. See [Stopping and resuming](#stopping-and-resuming).
+- **Cache maintenance:** a button (and `--clear-cache`) to reclaim space from downloaded updates and leftover temporary files.
 - **No authentication required:** bulk listing uses Blerp's public GraphQL API.
 - **Persistent settings:** output folder, overwrite, bulk limit, and a custom FFmpeg location are remembered between runs — see [Settings](#settings).
 - **Clipboard watch (optional, GUI):** detects a copied Blerp soundbite link and either asks before downloading or downloads it automatically.
@@ -134,6 +135,9 @@ Two checkboxes enable clipboard watching: **Watch clipboard for Blerp links** de
 | `--limit N` | Bulk mode only: only the first N blerps (`bites[:N]`) |
 | `--delay SN` | Bulk mode: wait between blerps (seconds, default: `0.3`) |
 | `--overwrite` / `--no-overwrite` | Bulk mode: overwrite existing files / force skip, overriding the saved default |
+| `--resume` / `--no-resume` | Bulk mode: reuse the saved profile listing instead of re-scanning (default: on) |
+| `--clear-cache` | Delete downloaded updates, leftover temp files and the saved unfinished download, then exit |
+| `--reset-settings` | Restore every setting to its default, then exit |
 
 > `--limit`, `--delay`, and `--overwrite` take effect only in bulk mode. `-o/--out` is interpreted as a file in single mode and as a folder in bulk mode. `-o`, `--limit`, `--delay`, and `--overwrite` all default to whatever is saved in [Settings](#settings) if present, otherwise to the values shown above.
 
@@ -164,6 +168,37 @@ git push --tags
 ```
 
 The workflow verifies the tag matches `__version__` (and fails loudly if you forgot to bump it), builds both executables, compiles the installer, and publishes the release with a SHA-256 checksum file. A tag containing a hyphen (`v1.1.0-rc.1`) is published as a **prerelease**, which the in-app updater ignores — useful for testing the pipeline without shipping to users.
+
+## Stopping and resuming
+
+Press **Stop** during a bulk download and it finishes the blerp it is on, then stops. Press **Download** again — with the same username — and it carries on from there. This works after closing the app, and after a crash.
+
+What makes that fast is that the *scan* is remembered, not just the files. Walking a profile is many sequential requests (the API returns 12 blerps a page), which is minutes for a large profile; resuming reuses the listing from the interrupted run, so downloading restarts immediately. Even a scan that was itself interrupted is kept, so the blerps found so far aren't thrown away.
+
+Reusing the listing is also more faithful than scanning again: a fresh scan reorders results, so `--limit 50` would cover a different 50, and a blerp renamed on the site would be downloaded a second time under its new name.
+
+```bash
+python blerp_to_mp4.py --user someone          # resumes if an unfinished run is saved
+python blerp_to_mp4.py --user someone --no-resume   # ignore it and re-scan
+```
+
+The saved run is forgotten once the download reaches the end, and after 30 days. **`--overwrite` runs are never resumed**: they deliberately ignore what is already downloaded, so there would be nothing to work out how far they got — they always start from the first blerp.
+
+Files already downloaded are recognised by name, so nothing is fetched twice. A half-written file is never mistaken for a finished one: each MP4 is encoded alongside its destination and only moved into place once complete.
+
+## Cache
+
+**Clear cache…** (or `--clear-cache`) removes:
+
+- downloaded update installers (13-35 MB each)
+- temporary folders left behind by downloads that were interrupted
+- the saved unfinished download, if there is one — named in the confirmation, since losing it means the next run re-scans
+
+Optionally it also removes half-written `.part` files from your output folder. That is off by default: they are harmless, and it is the only place the app would delete anything inside a folder you chose.
+
+Anything in use — an installer being downloaded, a temporary folder belonging to a download in progress, including one in a second copy of the app — is detected and left alone.
+
+**Reset settings…** (or `--reset-settings`) is deliberately separate: it restores the output folder, FFmpeg folder, limit, overwrite and clipboard options to their defaults. It does not touch your downloads or the window size.
 
 ## Settings
 
