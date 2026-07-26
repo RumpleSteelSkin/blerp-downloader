@@ -16,6 +16,16 @@ from tkinter import ttk
 MODES = ("auto", "dark", "light")
 
 
+# Height of a download-list row. Has to leave room for the thumbnail plus
+# padding: clam clips whatever the row height cannot hold, and the thumbnail is
+# the tallest thing in the row. tests/test_thumbs.py pins the relationship.
+LIST_ROW_HEIGHT = 48
+
+# The picker carries the same thumbnails as the list, so its rows have to clear
+# them too - clam silently crops whatever the row height cannot hold.
+PICKER_ROW_HEIGHT = 44
+
+
 @dataclass(frozen=True)
 class Palette:
     bg: str            # window background
@@ -212,6 +222,36 @@ def apply_theme(root, mode: str) -> Palette:
                     darkcolor=p.accent, arrowsize=6)
 
     style.configure("TSeparator", background=p.border)
+
+    # Not polish: clam's stock Treeview hardcodes a white background, black text
+    # and its own selection colour, so in dark mode the download list would be a
+    # white block. `rowheight` has to be re-applied here rather than set once at
+    # build time - it is a style property, so a light/dark switch resets it and
+    # the row thumbnails would be clipped.
+    style.configure("Treeview", background=p.surface, fieldbackground=p.surface,
+                    foreground=p.text, bordercolor=p.border, borderwidth=0,
+                    relief="flat", rowheight=LIST_ROW_HEIGHT)
+    style.map("Treeview",
+              background=[("selected", p.select_bg)],
+              foreground=[("selected", p.select_fg), ("disabled", p.disabled_fg)])
+    style.configure("Treeview.Heading", background=p.bg, foreground=p.muted,
+                    bordercolor=p.border, relief="flat", borderwidth=0,
+                    padding=(6, 4), font=("Segoe UI", 8, "bold"))
+    style.map("Treeview.Heading",
+              background=[("active", p.border)], foreground=[("active", p.text)])
+    # clam draws the expander with the *field* background, which leaves a pale
+    # square on each parent row in dark mode.
+    style.configure("Treeview.Item", background=p.surface)
+    # The picker carries no thumbnails, so it has no reason to pay for the row
+    # height they need - and it is the one list where fitting more on screen at
+    # once is the whole point.
+    style.configure("Picker.Treeview", background=p.surface,
+                    fieldbackground=p.surface, foreground=p.text,
+                    bordercolor=p.border, borderwidth=0, relief="flat",
+                    rowheight=PICKER_ROW_HEIGHT)
+    style.map("Picker.Treeview",
+              background=[("selected", p.select_bg)],
+              foreground=[("selected", p.select_fg)])
 
     style.configure("Vertical.TScrollbar", background=p.surface,
                     troughcolor=p.bg, bordercolor=p.bg,

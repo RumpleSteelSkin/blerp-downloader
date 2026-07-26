@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import jobs, updater
+from . import jobs, thumbs, updater
 
 # Scratch directories created by process_bite. The first is the current prefix;
 # the second is what builds before 1.0.6 used, which was not specific enough to
@@ -152,8 +152,8 @@ def output_dirs(*extra: str) -> list[Path]:
 
     found: list[Path] = []
     seen: set[str] = set()
-    job = jobs.load_job()
-    for raw in (*extra, load_settings().output_dir, job.out_dir if job else ""):
+    saved = [j.out_dir for j in jobs.saved_jobs()]
+    for raw in (*extra, load_settings().output_dir, *saved):
         if not raw:
             continue
         try:
@@ -195,17 +195,109 @@ def clear_part_files(result: CleanupResult, dirs: list[Path]) -> None:
         result.details.append(f"{removed} unfinished download file(s)")
 
 
+@dataclass
+class CacheUsage:
+    """How much space the app is holding on to, and where."""
+    updates_bytes: int = 0
+    temp_bytes: int = 0
+    thumbs_bytes: int = 0
+    listings_bytes: int = 0
+
+    @property
+    def total_bytes(self) -> int:
+        return (self.updates_bytes + self.temp_bytes
+                + self.thumbs_bytes + self.listings_bytes)
+
+    @property
+    def total_mb(self) -> float:
+        return self.total_bytes / 1_048_576
+
+    def summary(self) -> str:
+        """A one-line breakdown, largest first, for a label or a dialog."""
+        parts = [(self.updates_bytes, "updates"), (self.temp_bytes, "temp files"),
+                 (self.thumbs_bytes, "images"), (self.listings_bytes, "listings")]
+        shown = ", ".join(f"{human_size(b)} {name}"
+                          for b, name in sorted(parts, reverse=True) if b)
+        return f"{human_size(self.total_bytes)}" + (f" — {shown}" if shown else "")
+
+
+def human_size(num: int) -> str:
+    """Bytes at a scale a person reads without counting digits."""
+    if num < 1024:
+        return f"{num} B"
+    for unit in ("KB", "MB", "GB"):
+        num /= 1024.0
+        if num < 1024 or unit == "GB":
+            return f"{num:.1f} {unit}".replace(".0 ", " ")
+    return f"{num:.1f} GB"
+
+
+def cache_usage() -> CacheUsage:
+    """Measures the cache. Never raises - it is only ever shown, never acted on.
+
+    Deliberately reported before anything is deleted: without a number there is
+    nothing to tell the user whether clearing is worth doing, so they either
+    never clear it or clear it pointlessly.
+    """
+    usage = CacheUsage()
+    try:
+        usage.updates_bytes = sum(_size_of(p) for p in updater.updates_dir().glob("*")
+                                  if p.suffix.lower() in (".exe", ".part"))
+    except OSError:
+        pass
+    try:
+        root = Path(tempfile.gettempdir())
+        usage.temp_bytes = sum(_size_of(d) for d in root.iterdir()
+                               if d.is_dir() and d.name.startswith(TEMP_PREFIXES))
+    except OSError:
+        pass
+    try:
+        usage.thumbs_bytes = sum(_size_of(p) for p in thumbs.thumbs_dir().glob("*.*"))
+    except OSError:
+        pass
+    usage.listings_bytes = sum(_size_of(p) for p in jobs.listing_paths())
+    return usage
+
+
+def clear_thumbnails(result: CleanupResult) -> None:
+    """Drops the cached blerp images.
+
+    No lock probe here, unlike the scratch directories: these are written once
+    and closed, so nothing can be holding one open. They come back for free the
+    next time a blerp is downloaded.
+    """
+    removed = 0
+    try:
+        files = list(thumbs.thumbs_dir().glob("*.*"))
+    except OSError:
+        return
+    for path in files:
+        try:
+            size = path.stat().st_size
+            path.unlink()
+            result.freed_bytes += size
+            removed += 1
+        except OSError:
+            result.in_use += 1
+    if removed:
+        result.removed += removed
+        result.details.append(f"{removed} cached blerp image(s)")
+
+
 def clear_cache(*, include_outputs: bool = False, output_dirs_: list[Path] | None = None,
                 forget_job: bool = True) -> CleanupResult:
     """Clears everything the app cached. Never raises."""
     result = CleanupResult()
     clear_updates(result)
     clear_temp(result)
+    clear_thumbnails(result)
     if include_outputs:
         clear_part_files(result, output_dirs_ if output_dirs_ is not None else output_dirs())
     if forget_job:
-        job = jobs.load_job()
+        saved = jobs.saved_jobs()
         jobs.clear_job()
-        if job:
-            result.details.append(f"the unfinished download for {job.username}")
+        if len(saved) == 1:
+            result.details.append(f"the unfinished download for {saved[0].username}")
+        elif saved:
+            result.details.append(f"{len(saved)} unfinished downloads")
     return result

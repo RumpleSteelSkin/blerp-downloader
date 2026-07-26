@@ -24,8 +24,11 @@ Bir Blerp soundbite'ının animasyonlu görselini (WebP) ve sesini (MP3) indirip
 - **Animasyonlu WebP -> MP4:** Görsel ile sesi tek bir MP4 dosyasında birleştirir.
 - **Gerçek kare süreleri:** Animasyonun her karesinin süresini WebP'nin ham ANMF chunk'larından okuyarak hızı bozmadan korur.
 - **"Ses kral" senkronu:** Nihai videonun uzunluğu sesin uzunluğuna eşitlenir; animasyon kısaysa döngülenir, uzunsa kesilir, ses asla kesilmez.
+- **Kapatınca kaybolmayan indirme listesi:** Linkleri yapıştırırsın, resmi, adı, durumu ve ilerlemesiyle satır olarak sıraya girerler ve bir dahaki açılışta hâlâ oradadırlar. Bkz. [İndirme listesi](#i̇ndirme-listesi).
+- **Bildirim alanında yaşar:** Pencereyi kapatmak uygulamayı kapatmaz, indirme sürer; çıkmak istediğinde tepsi ikonunun menüsünden bilerek çıkarsın. Bkz. [Bildirim alanı](#bildirim-alanı).
 - **Durdur ve sonra devam et:** Toplu indirme istediğin anda durdurulup sonra kaldığı yerden sürdürülebilir — uygulamayı kapatsan bile, profili yeniden taramadan. Bkz. [Durdurma ve devam etme](#durdurma-ve-devam-etme).
-- **Cache bakımı:** İndirilen güncellemelerin ve yarım kalmış geçici dosyaların kapladığı yeri geri kazanmak için bir buton (ve `--clear-cache`).
+- **Bildirimler:** Panodan link yakalandığında bir kart, indirme başlayınca blerp'in resmiyle Windows bildirimi. Bkz. [Bildirimler](#bildirimler).
+- **Cache bakımı:** Options cache'in ne kadar yer tuttuğunu gösterir, tek buton (ya da `--clear-cache`) geri kazanır.
 - **Kimlik doğrulama gerektirmez:** Toplu listeleme, Blerp'in açık GraphQL API'sini kullanır.
 - **Kalıcı ayarlar:** Çıktı klasörü, üzerine yazma, toplu limit ve özel bir FFmpeg konumu çalıştırmalar arasında hatırlanır — bkz. [Ayarlar](#ayarlar).
 - **Panoyu izleme (opsiyonel, GUI):** Kopyalanan bir Blerp soundbite linkini algılar; ya indirmeden önce sorar ya da otomatik indirir.
@@ -199,6 +202,71 @@ Kaydedilen iş, indirme sonuna ulaştığında ve 30 gün sonra unutulur. **`--o
 Kullanımda olan hiçbir şeye dokunulmaz — indirilmekte olan bir installer, devam eden bir indirmeye ait geçici klasör, ikinci bir uygulama kopyasındakiler dahil — tespit edilip atlanır.
 
 **Reset settings…** (ya da `--reset-settings`) bilerek ayrı tutuldu: çıktı klasörü, FFmpeg klasörü, limit, üzerine yazma ve pano seçeneklerini varsayılana döndürür. İndirdiğin dosyalara ve pencere boyutuna dokunmaz.
+
+## İndirme listesi
+
+Ana pencere bir liste. Bir soundbite URL'si — ya da bütün bir profil için bir
+kullanıcı adı — yapıştırıp **Add**'e basarsın, satır olur. **Start** satırları
+sırayla işler; **Stop** o an inen blerp'i bitirip durur.
+
+Her satırda blerp'in resmi (biliniyorsa), adı, ne yaptığı ve nereye geldiği
+görünür. Biten satırlar sen silene kadar durur, yani liste aynı zamanda neyi
+aldığının kaydı olur. **Remove** seçili satırları, **Clear finished** bitenleri,
+**Clear list…** hepsini kaldırır. İnmekte olan satır kaldırılamaz — önce Stop.
+
+**Liste diske kaydedilir.** Uygulamayı kapat, makineyi yeniden başlat, elektrik
+gitsin: satırlar aynen geri gelir. Süreç bittiğinde yarıda kalan bir satır
+"sonsuza kadar meşgul" gibi değil, *Bekliyor* olarak geri döner; çünkü yarım
+kalmış bir blerp ortasından sürdürülemez, baştan başlar. Bitmemiş bir linkin
+kaybolmamasını sağlayan da tam olarak budur.
+
+Profil, binlerce satır değil, tek satırdır. Oka basınca içindeki blerp'ler
+açılır; her biri kaydedilmiş ya da bekliyor olarak işaretlidir ve o profil için
+daha önce taranmış listeden okunur. Sırf satırı açtın diye hiçbir şey taranmaz.
+
+**Profilden neyin ineceğine sen karar verirsin.** Tarama bittiğinde her blerp'i
+işaret kutusuyla listeleyen bir pencere açılır — elinde olmayanlar senin için
+zaten işaretli — Select all, Clear all, Invert ve *Only the missing ones*
+düğmeleriyle; bir aralığı taramak için shift-tık. Download'a bastığında yalnızca
+işaretlediklerin iner. Her satırda blerp'in resmi var; yalnızca kaydırdıkça görünenler getiriliyor —
+çünkü o resim animasyonun kendisi, yüzlercesini baştan yüklemek profilin
+tamamını sırf almamaya karar vermek için indirmek olurdu. Satıra sağ tıklayıp
+o blerp'in sayfasını açabilir ya da URL'sini kopyalayabilirsin.
+
+Seçimin hatırlanır, durdurup tekrar başlattığında ikinci
+kez sormaz. Her şeyi almayı tercih ediyorsan Options'tan kapatabilirsin.
+
+Bir satıra sağ tıkla: **Copy URL**, tarayıcıda aç, klasörünü aç, tekrar indir,
+listeden çıkar. Profilin içindeki bir blerp'te Copy URL profilin değil, o
+blerp'in kendi sayfasını verir.
+
+## Bildirim alanı
+
+Pencereyi kapatmak çıkmak değildir. Uygulama bildirim alanında devam eder, böylece
+yanlış zamanda çarpıya basmak yarıda kalan bir indirmeyi mahvedemez. İkonun sağ
+tık menüsünde Open, Start, Stop ve Quit var — çıkış bilerek yapılır ve indirme
+sürüyorsa önce sorar.
+
+Aynı anda tek kopya çalışır. Uygulamayı tekrar başlatmak, kayıtlı liste üzerinde
+onunla çekişecek ikinci bir kopya açmak yerine zaten çalışan kopyayı ekrana geri
+getirir.
+
+X'in gerçekten kapatmasını istiyorsan Options'tan kapatabilirsin.
+
+## Bildirimler
+
+İki tür, ikisi de isteğe bağlı.
+
+Pano izleme bir Blerp linki yakaladığında köşede küçük bir kart belirir: blerp'in
+resmi, **Add to list** ve **Ignore**. Birkaç saniye sonra kendiliğinden kaybolur,
+üzerine geldiğinde bu geri sayım durur, ve yalnızca bir düğmeye basınca iş yapar
+— yanlışlıkla tıklamayla asla. Windows'a göre an uygun değilse (tam ekran oyun,
+sunum, sessiz saatler) hiç çıkmaz.
+
+Bir indirme başladığında Windows'un kendi bildirimi çıkar: blerp'in adı ve resmi
+ile. Satır başına bir tane, bir de çalışma bitince özet — profilin içindeki her
+blerp için asla, çünkü 3.000 bildirim bir uygulamanın bildirimlerinin temelli
+kapatılmasının yoludur.
 
 ## Ayarlar
 

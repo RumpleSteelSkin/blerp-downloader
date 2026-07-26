@@ -38,7 +38,7 @@ def run_single(url: str, out: Path | None) -> None:
 def _resolve_listing(username: str, resume: bool) -> tuple[list, int, bool]:
     """The profile listing, from the saved job if one fits. Returns
     (bites, dropped, came_from_saved_job)."""
-    saved = jobs.load_job() if resume else None
+    saved = jobs.load_job(username) if resume else None
     if saved and saved.matches(username) and saved.is_usable():
         # The scan is the slow part; reusing it is also more faithful, since a
         # fresh one can reorder under --limit and rename files whose titles
@@ -125,15 +125,15 @@ def run_bulk(username: str, out_dir: Path | None, *, limit: int | None,
         # Reached the end without stopping early: nothing left to come back to.
         # Keyed on that rather than "nothing remaining", because a bite that
         # keeps failing writes no file and would otherwise make the job immortal.
-        jobs.clear_job()
+        jobs.clear_job(username)
 
     print(f"\nDone: {ok} downloaded, {skip} skipped, {fail} failed -> {out_dir.resolve()}")
 
 
 def _do_clear_cache() -> None:
     """--clear-cache. The GUI offers the same thing behind a confirmation."""
-    saved = jobs.load_job()
-    if saved:
+    print(f"Cached: {maintenance.cache_usage().summary()}")
+    for saved in jobs.saved_jobs():
         print(f"Forgetting the unfinished download for {saved.username} "
               f"({len(saved.bites)} blerps).")
     result = maintenance.clear_cache()

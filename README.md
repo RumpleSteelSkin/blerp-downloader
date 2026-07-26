@@ -24,10 +24,13 @@ Downloads a Blerp soundbite's animated image (WebP) and its audio (MP3), then co
 - **Animated WebP -> MP4:** merges the image and audio into a single MP4 file.
 - **True frame durations:** reads each animation frame's duration directly from the WebP's raw ANMF chunks, preserving the original speed.
 - **"Audio is king" sync:** the final video's length is matched to the audio length; if the animation is shorter it is looped, if longer it is cut, and the audio is never cut.
+- **A download list that survives closing the app:** paste links in, they queue up as rows with their image, name, status and progress, and they are still there next time. See [The download list](#the-download-list).
+- **Lives in the notification area:** closing the window keeps the app running and downloading; quit deliberately from the tray icon's menu. See [The notification area](#the-notification-area).
 - **Stop and pick up again:** a bulk download can be stopped at any point and carried on later — even after closing the app — without re-scanning the profile. See [Stopping and resuming](#stopping-and-resuming).
-- **Cache maintenance:** a button (and `--clear-cache`) to reclaim space from downloaded updates and leftover temporary files.
+- **Notifications:** a card when a copied link is caught, and a Windows notification — with the blerp's image — when a download starts. See [Notifications](#notifications).
+- **Cache maintenance:** Options shows what the cache is costing you, and one button (or `--clear-cache`) reclaims it.
 - **No authentication required:** bulk listing uses Blerp's public GraphQL API.
-- **Persistent settings:** output folder, overwrite, bulk limit, and a custom FFmpeg location are remembered between runs — see [Settings](#settings).
+- **Persistent settings:** everything you configure lives in one **Options** window and is remembered between runs — see [Settings](#settings).
 - **Clipboard watch (optional, GUI):** detects a copied Blerp soundbite link and either asks before downloading or downloads it automatically.
 - **In-app updates (GUI, packaged build):** a **Check for Updates** button fetches the latest release from GitHub, downloads the installer, and applies it — see [Updating](#updating).
 
@@ -199,6 +202,72 @@ Optionally it also removes half-written `.part` files from your output folder. T
 Anything in use — an installer being downloaded, a temporary folder belonging to a download in progress, including one in a second copy of the app — is detected and left alone.
 
 **Reset settings…** (or `--reset-settings`) is deliberately separate: it restores the output folder, FFmpeg folder, limit, overwrite and clipboard options to their defaults. It does not touch your downloads or the window size.
+
+## The download list
+
+The main window is a list. Paste a soundbite URL — or a username for a whole
+profile — press **Add**, and it becomes a row. **Start** works through the rows
+in order; **Stop** finishes the blerp in progress and stands down.
+
+Each row shows the blerp's image where one is known, its name, what it is doing,
+and how far it has got. Finished rows stay until you remove them, so the list
+doubles as a record of what you have taken. **Remove** drops the selected rows,
+**Clear finished** takes the completed ones, and **Clear list…** empties it. The
+row that is downloading cannot be removed — press Stop first.
+
+**The list is saved.** Close the app, restart the machine, lose power: the rows
+come back exactly as they were. Anything that was mid-download when the process
+ended goes back to *Waiting* rather than being shown as forever busy, because a
+half-finished blerp cannot be resumed from the middle — it starts again. That is
+also what makes an unfinished link stick around instead of being lost.
+
+A profile is a single row rather than thousands. Open it with the arrow and the
+blerps inside appear, each marked saved or waiting, read from the listing that
+was scanned for it. Nothing is scanned just because you opened a row.
+
+**You choose what a profile actually downloads.** Once it has been scanned, a
+window lists every blerp with a tick box — everything you don't already have is
+ticked for you — with Select all, Clear all, Invert and *Only the missing ones*,
+plus shift-click to sweep a range. Press Download and only those are fetched.
+Each row carries the blerp's picture, fetched only for the rows you scroll
+past — the image *is* the full-size animation, so loading three hundred up front
+would download the whole profile just to decide against it. Right-click a row
+to open that blerp's page or copy its URL.
+
+Your choice is remembered, so stopping and starting again does not ask twice.
+Turn it off in Options if you would rather take everything.
+
+Right-click a row for **Copy URL**, Open in browser, Open containing folder,
+Download again, or Remove. On a blerp inside a profile, Copy URL gives you that
+blerp's own page rather than the profile's.
+
+## The notification area
+
+Closing the window does not quit. The app carries on in the notification area,
+so a mistimed click on the X cannot abandon a download half way through. The
+icon's right-click menu has Open, Start, Stop and Quit — quitting is deliberate,
+and it asks first if a download is still running.
+
+Only one copy runs at a time. Launching the app again brings the copy that is
+already running back to the screen rather than starting a second one that would
+fight it over the saved list.
+
+You can turn this off in Options if you would rather X meant close.
+
+## Notifications
+
+Two kinds, both optional.
+
+When the clipboard watch catches a Blerp link, a small card appears in the corner
+with the blerp's image and **Add to list** / **Ignore**. It fades out on its own
+after a few seconds, pauses that countdown while your pointer is over it, and
+only ever acts on a button — never on a stray click. If Windows says now is a bad
+time (a full-screen game, a presentation, quiet hours) it does not appear at all.
+
+When a download starts, Windows shows its own notification carrying the blerp's
+name and its image. One per row, and one summary when the run finishes — never
+one per blerp inside a profile, since 3,000 notifications is how an app gets its
+notifications switched off for good.
 
 ## Settings
 

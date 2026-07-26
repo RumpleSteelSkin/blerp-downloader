@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .ffmpeg_utils import probe_duration
 from .frames import extract_frames
+from . import thumbs
 from .network import http_get
 from .scraping import BiteMedia
 from .video import build_animation_video, mux, resolve_sync
@@ -61,14 +62,37 @@ def bulk_out_path(out_dir: Path, media: BiteMedia) -> Path:
     return out_dir / f"{sanitize(media.title)}_{media.bite_id}.mp4"
 
 
-def process_bite(media: BiteMedia, out_path: Path, *, verbose: bool = False) -> None:
+# The four stages a bite passes through, in order. A GUI can show these as
+# progress; the CLI's own "[2/5]".."[5/5]" lines are separate and unchanged.
+STEP_LABELS = (
+    "Downloading media",
+    "Extracting frames",
+    "Building animation video",
+    "Combining audio + video",
+)
+
+
+def process_bite(media: BiteMedia, out_path: Path, *, verbose: bool = False,
+                 on_step=None) -> None:
     """
     Downloads and converts one BiteMedia (audio+image URLs already resolved) to MP4.
     Shared by both single and bulk mode; propagates network/ffmpeg errors upward.
+
+    `on_step(index, total, label)` is called as each stage begins, for callers
+    that want progress without parsing the log lines.
     """
     def log(msg: str) -> None:
         if verbose:
             print(msg)
+
+    def step(index: int) -> None:
+        # Swallowed on purpose: this runs on whichever thread is downloading, and
+        # a broken progress callback must not take a bulk run down with it.
+        if on_step is not None:
+            try:
+                on_step(index, len(STEP_LABELS), STEP_LABELS[index])
+            except Exception:
+                pass
 
     # blerpdl_, not blerp_: the cache cleaner matches on this prefix, and the
     # shorter one isn't specific enough to this app to delete on sight.
@@ -78,7 +102,7 @@ def process_bite(media: BiteMedia, out_path: Path, *, verbose: bool = False) -> 
         # process unlink an open file, so this is what tells the cache cleaner
         # that this directory belongs to a run still in progress.
         with _scratch_lock(tmp):
-            _convert(media, out_path, tmp, log)
+            _convert(media, out_path, tmp, log, step)
 
 
 @contextlib.contextmanager
@@ -99,18 +123,24 @@ def _scratch_lock(tmp: Path):
                 pass
 
 
-def _convert(media: BiteMedia, out_path: Path, tmp: Path, log) -> None:
+def _convert(media: BiteMedia, out_path: Path, tmp: Path, log, step) -> None:
     """Download, split, encode, mux - all inside the scratch directory `tmp`."""
     webp_path, mp3_path = tmp / "image.webp", tmp / "audio.mp3"
 
+    step(0)
     log("[2/5] Downloading media...")
     webp_path.write_bytes(http_get(media.image_url))
     mp3_path.write_bytes(http_get(media.audio_url))
+    # The image is here anyway, so the list gets its thumbnail for free rather
+    # than downloading the same multi-megabyte animation a second time.
+    thumbs.store_from_webp(media.bite_id, webp_path)
 
+    step(1)
     log("[3/5] Extracting WebP frames...")
     frames, durations = extract_frames(webp_path, tmp / "frames")
     log(f"      {len(frames)} frames, ~{sum(durations)/1000:.2f}s animation")
 
+    step(2)
     log("[4/5] Building animation video...")
     anim = tmp / "anim.mp4"
     video_dur = build_animation_video(frames, durations, anim)
@@ -121,6 +151,7 @@ def _convert(media: BiteMedia, out_path: Path, tmp: Path, log) -> None:
     log(f"      Plan: target={plan.target_duration:.2f}s "
         f"loop_video={plan.loop_video} pad_audio={plan.pad_audio_with_silence}")
 
+    step(3)
     log("[5/5] Combining audio + video...")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     mux(anim, mp3_path, plan, out_path)

@@ -44,12 +44,14 @@ jobs:
         # Catches a syntax error or bad import in a module no test touches yet.
         shell: pwsh
         run: |
-          Get-ChildItem blerp_downloader -Filter *.py |
-            ForEach-Object {
-              $m = "blerp_downloader." + $_.BaseName
-              if ($_.BaseName -ne "__init__") {
-                python -c "import $m"
-                if ($LASTEXITCODE -ne 0) { throw "failed to import $m" }
+          foreach ($pkg in @("blerp_downloader", "blerp_ui")) {
+            Get-ChildItem $pkg -Filter *.py |
+              ForEach-Object {
+                $m = "$pkg." + $_.BaseName
+                if ($_.BaseName -ne "__init__") {
+                  python -c "import $m"
+                  if ($LASTEXITCODE -ne 0) { throw "failed to import $m" }
+                }
               }
-            }
+          }
           python -c "import blerp_gui"

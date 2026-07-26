@@ -138,10 +138,21 @@ class TestUpdatesSweep(unittest.TestCase):
 
 
 class TestOutputDirs(unittest.TestCase):
+    """The folders clear-cache is willing to delete inside.
+
+    saved_jobs is stubbed rather than left alone: without it these read the real
+    %LOCALAPPDATA%, so the answer would depend on whatever the person running
+    the tests happens to have half-downloaded.
+    """
+
+    def setUp(self):
+        patch = mock.patch.object(maintenance.jobs, "saved_jobs", lambda: [])
+        patch.start()
+        self.addCleanup(patch.stop)
+
     def test_deduplicates_and_keeps_only_real_folders(self):
         with tempfile.TemporaryDirectory() as td:
-            with mock.patch.object(maintenance.jobs, "load_job", lambda: None), \
-                 mock.patch("blerp_downloader.settings.load_settings",
+            with mock.patch("blerp_downloader.settings.load_settings",
                             lambda: mock.Mock(output_dir=td)):
                 dirs = maintenance.output_dirs(td, td.upper(), "", "Z:/does-not-exist")
         self.assertEqual(len(dirs), 1)
@@ -149,10 +160,20 @@ class TestOutputDirs(unittest.TestCase):
     def test_nothing_configured_yields_nothing(self):
         """With no output folder set the destination is relative to the working
         directory - not something to go deleting in."""
-        with mock.patch.object(maintenance.jobs, "load_job", lambda: None), \
-             mock.patch("blerp_downloader.settings.load_settings",
+        with mock.patch("blerp_downloader.settings.load_settings",
                         lambda: mock.Mock(output_dir="")):
             self.assertEqual(maintenance.output_dirs(), [])
+
+    def test_a_saved_listing_contributes_its_folder(self):
+        """A profile scanned into a folder is one the app can prove it wrote to,
+        so leftover .part files there are fair game."""
+        with tempfile.TemporaryDirectory() as td:
+            with mock.patch.object(maintenance.jobs, "saved_jobs",
+                                   lambda: [mock.Mock(out_dir=td)]), \
+                 mock.patch("blerp_downloader.settings.load_settings",
+                            lambda: mock.Mock(output_dir="")):
+                self.assertEqual([str(p) for p in maintenance.output_dirs()],
+                                 [str(Path(td).resolve())])
 
 
 if __name__ == "__main__":

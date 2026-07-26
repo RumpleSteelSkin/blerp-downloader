@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import sys
 import tempfile
 import unittest
@@ -11,6 +12,36 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from blerp_downloader import settings as st  # noqa: E402
+
+# Fields whose value has to come from a fixed set rather than "anything but the
+# default" - load_settings clamps these, so a made-up value wouldn't round-trip.
+_CONSTRAINED = {
+    "theme": "dark",
+    "clipboard_mode": "auto",
+    "bulk_limit": 7,          # int | None, and the default is None
+    "output_dir": "D:/out",
+    "ffmpeg_dir": "C:/ffmpeg/bin",
+}
+
+
+def _non_default(field: dataclasses.Field):
+    """A valid value for `field` that differs from its default.
+
+    Derived from the field rather than written out per name, so a field added to
+    Settings is covered by the round-trip test without anyone remembering to
+    extend a literal.
+    """
+    if field.name in _CONSTRAINED:
+        return _CONSTRAINED[field.name]
+    default = field.default
+    if isinstance(default, bool):
+        return not default
+    if isinstance(default, int):
+        return default + 137
+    if isinstance(default, float):
+        return default + 1.25
+    raise AssertionError(f"no non-default value known for {field.name!r} "
+                         f"(default {default!r}) - add one to _CONSTRAINED")
 
 
 class _TempSettings(unittest.TestCase):
@@ -32,13 +63,21 @@ class TestRoundTrip(_TempSettings):
         self.assertEqual(st.load_settings(), st.Settings())
 
     def test_every_field_survives(self):
-        original = st.Settings(
-            output_dir="D:/out", overwrite=True, bulk_limit=7, bulk_delay=1.5,
-            ffmpeg_dir="C:/ffmpeg/bin", window_width=800, window_height=600,
-            clipboard_watch=True, clipboard_mode="auto", theme="dark",
-        )
+        """Built from the dataclass, not by hand: a hand-listed Settings(...)
+        takes the default for any field added later, so both sides would match
+        without the new field ever being written."""
+        original = st.Settings(**{f.name: _non_default(f)
+                                  for f in dataclasses.fields(st.Settings)})
         st.save_settings(original)
         self.assertEqual(st.load_settings(), original)
+
+    def test_every_field_is_written(self):
+        """A field missing from the file loads as its default, so an omission is
+        invisible to a round-trip test that happens to use that default."""
+        st.save_settings(st.Settings())
+        text = self.path.read_text(encoding="utf-8")
+        for f in dataclasses.fields(st.Settings):
+            self.assertIn(f"{f.name} = ", text, f.name)
 
     def test_theme_is_written(self):
         st.save_settings(st.Settings(theme="light"))
@@ -81,6 +120,25 @@ class TestTolerance(_TempSettings):
     def test_theme_is_case_insensitive(self):
         self.path.write_text("[general]\ntheme = DARK\n", encoding="utf-8")
         self.assertEqual(st.load_settings().theme, "dark")
+
+    def test_unknown_clipboard_mode_falls_back_to_ask(self):
+        """Anything but "auto" used to be treated as "ask" by the one caller, so
+        a typo happened to work; now that the value is read in several places it
+        is clamped on load instead of relying on that."""
+        for bad in ("automatic", "", "yes"):
+            self.path.write_text(f"[general]\nclipboard_mode = {bad}\n",
+                                 encoding="utf-8")
+            self.assertEqual(st.load_settings().clipboard_mode, "ask", bad)
+
+    def test_new_toggles_default_to_on(self):
+        """These gate behaviour the user asked for, so an absent key must not
+        silently disable them."""
+        self.path.write_text("[general]\noutput_dir = D:/x\n", encoding="utf-8")
+        loaded = st.load_settings()
+        for name in ("close_to_tray", "tray_enabled", "notify_balloons",
+                     "notify_card", "thumbnails"):
+            self.assertTrue(getattr(loaded, name), name)
+        self.assertFalse(loaded.log_expanded)
 
 
 if __name__ == "__main__":

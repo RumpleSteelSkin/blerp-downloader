@@ -31,9 +31,14 @@ def _bite(n: int = 1) -> BiteMedia:
 class _TempJob(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
-        self.path = Path(self._tmp.name) / "job.json"
-        self._patch = mock.patch.object(jobs, "_job_path", lambda: self.path)
+        self.root = Path(self._tmp.name)
+        # state_dir rather than _job_path: listings are keyed by profile now, so
+        # patching the path function would hide the very thing that decides
+        # which file a job lands in.
+        self._patch = mock.patch.object(jobs, "state_dir", lambda: self.root)
         self._patch.start()
+        self.path = jobs._job_path("someone")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
 
     def tearDown(self):
         self._patch.stop()
@@ -179,6 +184,137 @@ class TestBiteMediaSchemaGuard(unittest.TestCase):
         self.assertEqual(
             {f.name for f in dataclasses.fields(BiteMedia)},
             {"bite_id", "title", "audio_url", "image_url", "audio_duration_s"})
+
+
+class TestPerProfileListings(_TempJob):
+    """One saved listing per profile.
+
+    A single job.json meant only one profile could ever be resumed, which the
+    download list makes visible: it can hold several profile rows at once.
+    """
+
+    def test_two_profiles_do_not_overwrite_each_other(self):
+        jobs.save_job(self._job(username="alice", bites=[_bite(1)]))
+        jobs.save_job(self._job(username="bob", bites=[_bite(2), _bite(3)]))
+        self.assertEqual(len(jobs.load_job("alice").bites), 1)
+        self.assertEqual(len(jobs.load_job("bob").bites), 2)
+
+    def test_lookup_is_case_folded(self):
+        """list_user_bites resolves a canonical name and discards it, so what
+        reaches here is whatever the user typed."""
+        jobs.save_job(self._job(username="SomeOne"))
+        self.assertIsNotNone(jobs.load_job("someone"))
+        self.assertIsNotNone(jobs.load_job("  SOMEONE  "))
+
+    def test_a_username_shaped_like_a_path_cannot_escape(self):
+        """The name is arbitrary text from a profile URL and becomes a filename."""
+        for hostile in ("../../evil", r"..\..\evil", "C:/Windows/system32"):
+            jobs.save_job(self._job(username=hostile))
+            written = list(jobs._jobs_dir().glob("*.json"))
+            for path in written:
+                self.assertEqual(path.parent, jobs._jobs_dir(), hostile)
+            self.assertIsNotNone(jobs.load_job(hostile), hostile)
+
+    def test_clearing_one_profile_leaves_the_others(self):
+        jobs.save_job(self._job(username="alice"))
+        jobs.save_job(self._job(username="bob"))
+        jobs.clear_job("alice")
+        self.assertIsNone(jobs.load_job("alice"))
+        self.assertIsNotNone(jobs.load_job("bob"))
+
+    def test_clearing_with_no_name_removes_every_listing(self):
+        jobs.save_job(self._job(username="alice"))
+        jobs.save_job(self._job(username="bob"))
+        jobs.clear_job()
+        self.assertEqual(jobs.saved_jobs(), [])
+
+    def test_no_username_loads_the_most_recent(self):
+        """What the CLI does before it knows whether the profile has a listing."""
+        jobs.save_job(self._job(username="alice"))
+        time.sleep(0.02)
+        jobs.save_job(self._job(username="bob"))
+        self.assertEqual(jobs.load_job().username, "bob")
+
+    def test_saved_jobs_lists_them_all(self):
+        jobs.save_job(self._job(username="alice"))
+        jobs.save_job(self._job(username="bob"))
+        self.assertEqual({j.username for j in jobs.saved_jobs()}, {"alice", "bob"})
+
+    def test_no_listings_at_all_is_not_an_error(self):
+        self.assertIsNone(jobs.load_job())
+        self.assertIsNone(jobs.load_job("nobody"))
+        self.assertEqual(jobs.saved_jobs(), [])
+        jobs.clear_job("nobody")
+
+
+class TestLegacyMigration(_TempJob):
+    def _write_legacy(self, username: str) -> Path:
+        path = jobs._legacy_job_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({
+            "version": jobs.SCHEMA_VERSION, "username": username,
+            "bites": [dataclasses.asdict(_bite(1))], "created_at": time.time(),
+        }), encoding="utf-8")
+        return path
+
+    def test_a_pre_1_1_job_is_moved_under_its_profile(self):
+        legacy = self._write_legacy("someone")
+        loaded = jobs.load_job("someone")
+        self.assertIsNotNone(loaded)
+        self.assertEqual(loaded.username, "someone")
+        self.assertFalse(legacy.exists(), "the old file should be gone, not copied")
+
+    def test_migration_does_not_clobber_a_newer_listing(self):
+        jobs.save_job(self._job(username="someone", bites=[_bite(1), _bite(2)]))
+        self._write_legacy("someone")
+        self.assertEqual(len(jobs.load_job("someone").bites), 2)
+
+    def test_an_unreadable_legacy_file_is_discarded_quietly(self):
+        legacy = jobs._legacy_job_path()
+        legacy.parent.mkdir(parents=True, exist_ok=True)
+        legacy.write_text("{not json", encoding="utf-8")
+        self.assertIsNone(jobs.load_job("someone"))   # must not raise
+        self.assertFalse(legacy.exists())
+
+
+class TestSelection(_TempJob):
+    """Which blerps of a profile the user ticked, so a restart doesn't re-ask."""
+
+    def test_the_selection_round_trips(self):
+        chosen = [_bite(1).bite_id]
+        jobs.save_job(self._job(selected=chosen))
+        self.assertEqual(jobs.load_job("someone").selected, chosen)
+
+    def test_no_selection_means_all_of_them(self):
+        jobs.save_job(self._job())
+        self.assertEqual(jobs.load_job("someone").selected, [])
+
+    def test_a_selection_entry_that_is_not_an_objectid_is_dropped(self):
+        """It is matched against bite ids that become filenames."""
+        self.path.write_text(json.dumps({
+            "version": jobs.SCHEMA_VERSION, "username": "someone",
+            "bites": [dataclasses.asdict(_bite(1))], "created_at": time.time(),
+            "selected": ["../../evil", _bite(1).bite_id, "nothex"],
+        }), encoding="utf-8")
+        self.assertEqual(jobs.load_job("someone").selected, [_bite(1).bite_id])
+
+    def test_a_version_1_file_still_loads(self):
+        """The only change is an added optional field, so refusing an older file
+        would throw away a scan the user is part way through for nothing."""
+        self.path.write_text(json.dumps({
+            "version": 1, "username": "someone",
+            "bites": [dataclasses.asdict(_bite(1))], "created_at": time.time(),
+        }), encoding="utf-8")
+        loaded = jobs.load_job("someone")
+        self.assertIsNotNone(loaded)
+        self.assertEqual(loaded.selected, [])
+
+    def test_a_future_version_is_still_refused(self):
+        self.path.write_text(json.dumps({
+            "version": 99, "username": "someone",
+            "bites": [dataclasses.asdict(_bite(1))],
+        }), encoding="utf-8")
+        self.assertIsNone(jobs.load_job("someone"))
 
 
 if __name__ == "__main__":
